@@ -14,8 +14,5 @@ cmake --install .
 ### Python
 To build, from the ``python/`` directory, run:
 ```
-mkdir build
-cd build
-cmake ..
-cmake --build .
+pip3 install .
 ```
