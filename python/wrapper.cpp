@@ -1,5 +1,5 @@
 #include <pybind11/pybind11.h>
-#include "hello.h"
+#include <dolfinx_hdg/hello.h>
 
 PYBIND11_MODULE(dolfinx_hdg_python, m) {
     m.doc() = "pybind11 example plugin"; // optional module docstring

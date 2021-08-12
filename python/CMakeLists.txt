@@ -6,4 +6,4 @@ find_package(pybind11 REQUIRED CONFIG HINTS ${PYBIND11_DIR} ${PYBIND11_ROOT}
 
 pybind11_add_module(${PROJECT_NAME} SHARED wrapper.cpp)
 target_link_libraries(${PROJECT_NAME} PRIVATE pybind11::module)
-target_link_libraries(${PROJECT_NAME} PRIVATE dolfinx_hdg_cpp)
+target_link_libraries(${PROJECT_NAME} INTERFACE dolfinx_hdg)

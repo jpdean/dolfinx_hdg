@@ -2,7 +2,17 @@
 
 ## Installation
 
-To build and install, from the ``dolfinx_hdg/`` directory, run:
+### C++
+To install, from the ``cpp/`` directory, run:
+```
+mkdir build
+cd build
+cmake ..
+cmake --install .
+```
+
+### Python
+To build, from the ``python/`` directory, run:
 ```
 mkdir build
 cd build
