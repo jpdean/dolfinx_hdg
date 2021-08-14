@@ -3,16 +3,17 @@
 ## Installation
 
 ### C++
-To install, from the ``cpp/`` directory, run:
+To build and install, from the ``cpp/`` directory, run:
 ```
 mkdir build
 cd build
 cmake ..
+cmake --build .
 cmake --install .
 ```
 
 ### Python
-To build, from the ``python/`` directory, run:
+To build and install, from the ``python/`` directory, run:
 ```
 pip3 install .
 ```
