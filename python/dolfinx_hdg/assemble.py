@@ -15,8 +15,7 @@ def assemble_matrix(a: typing.Union[Form, dolfinx.cpp.fem.Form],
     finalised, i.e. ghost values are not accumulated.
 
     """
-    # A = cpp.fem.create_matrix(_create_cpp_form(a))
-    create_matrix()
+    create_matrix(_create_cpp_form(a))
     # return assemble_matrix(A, a, bcs, diagonal)
 
 
