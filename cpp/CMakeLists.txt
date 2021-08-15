@@ -11,7 +11,7 @@ option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 
 find_package(DOLFINX REQUIRED)
 
-add_library(${PROJECT_NAME} hello.cpp hello.h)
+add_library(${PROJECT_NAME} hello.cpp hello.h petsc.cpp petsc.h)
 
 # state that anybody linking to us needs to include the current source dir
 # to find hello.h, while we don't.

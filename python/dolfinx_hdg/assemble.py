@@ -5,6 +5,7 @@ import typing
 from dolfinx.fem.dirichletbc import DirichletBC
 from dolfinx.fem.form import Form
 from dolfinx.fem.assemble import _create_cpp_form
+from dolfinx_hdg.cpp import create_matrix
 
 @functools.singledispatch
 def assemble_matrix(a: typing.Union[Form, dolfinx.cpp.fem.Form],
@@ -15,7 +16,7 @@ def assemble_matrix(a: typing.Union[Form, dolfinx.cpp.fem.Form],
 
     """
     # A = cpp.fem.create_matrix(_create_cpp_form(a))
-    print("Hi")
+    create_matrix()
     # return assemble_matrix(A, a, bcs, diagonal)
 
 

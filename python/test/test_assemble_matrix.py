@@ -19,4 +19,4 @@ a10 = inner(u, vbar) * ds
 a01 = inner(v, ubar) * ds
 a11 = inner(ubar, vbar) * dx
 
-A = assemble_matrix(a00)
+A = assemble_matrix(a11)
