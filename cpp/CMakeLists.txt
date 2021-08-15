@@ -26,7 +26,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC dolfinx)
 install(TARGETS ${PROJECT_NAME}
         DESTINATION lib
         EXPORT dolfinx_hdg_targets)
-install(FILES hello.h DESTINATION include)
+install(FILES hello.h petsc.h DESTINATION include/${PROJECT_NAME})
 
 # install the configuration targets
 install(EXPORT dolfinx_hdg_targets
