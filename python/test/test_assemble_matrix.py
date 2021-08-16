@@ -2,6 +2,9 @@ from dolfinx import UnitSquareMesh, FunctionSpace
 from mpi4py import MPI
 from ufl import TrialFunction, TestFunction, inner, dx, ds
 from dolfinx_hdg.assemble import assemble_matrix
+import numpy as np
+
+np.set_printoptions(linewidth=200)
 
 n = 1
 mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
@@ -20,3 +23,6 @@ a01 = inner(v, ubar) * ds
 a11 = inner(ubar, vbar) * dx
 
 A = assemble_matrix(a11)
+A.assemble()
+
+print(A[:, :])

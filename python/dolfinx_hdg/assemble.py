@@ -5,7 +5,7 @@ import typing
 from dolfinx.fem.dirichletbc import DirichletBC
 from dolfinx.fem.form import Form
 from dolfinx.fem.assemble import _create_cpp_form
-from dolfinx_hdg.cpp import create_matrix
+from dolfinx_hdg.cpp import create_sparsity_pattern
 
 @functools.singledispatch
 def assemble_matrix(a: typing.Union[Form, dolfinx.cpp.fem.Form],
@@ -15,8 +15,10 @@ def assemble_matrix(a: typing.Union[Form, dolfinx.cpp.fem.Form],
     finalised, i.e. ghost values are not accumulated.
 
     """
-    create_matrix(_create_cpp_form(a))
-    # return assemble_matrix(A, a, bcs, diagonal)
+    cpp_form = _create_cpp_form(a)
+    sp = create_sparsity_pattern(cpp_form)
+    A = dolfinx.cpp.la.create_matrix(cpp_form.mesh.mpi_comm(), sp)
+    return assemble_matrix(A, a, bcs, diagonal)
 
 
 @assemble_matrix.register(PETSc.Mat)
