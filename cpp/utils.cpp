@@ -35,7 +35,5 @@ dolfinx::la::SparsityPattern dolfinx_hdg::fem::create_sparsity_pattern(
         }
     }
 
-    // TODO Assemble here or return unassembled?
-    sp.assemble();
     return sp;
 }

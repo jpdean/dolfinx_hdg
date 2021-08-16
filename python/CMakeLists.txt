@@ -17,4 +17,14 @@ target_link_libraries(cpp PUBLIC pybind11::module)
 target_link_libraries(cpp PUBLIC dolfinx)
 target_link_libraries(cpp PUBLIC dolfinx_hdg)
 
+# Find petsc4py through python
+execute_process(
+  COMMAND ${PYTHON_EXECUTABLE} -c "import petsc4py; print(petsc4py.get_include())"
+  OUTPUT_VARIABLE PETSC4PY_INCLUDE_DIR
+  RESULT_VARIABLE PETSC4PY_NOT_FOUND
+  ERROR_QUIET
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+target_include_directories(cpp PRIVATE ${PETSC4PY_INCLUDE_DIR})
+
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR})
