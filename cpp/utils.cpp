@@ -1,6 +1,7 @@
 #include "utils.h"
 #include <array>
 #include <dolfinx/common/IndexMap.h>
+#include <iostream>
 
 dolfinx::la::SparsityPattern dolfinx_hdg::fem::create_sparsity_pattern(
     const dolfinx::mesh::Topology &topology,
@@ -20,13 +21,18 @@ dolfinx::la::SparsityPattern dolfinx_hdg::fem::create_sparsity_pattern(
             dolfinx::common::IndexMap::Direction::forward),
         index_maps, bs);
 
-    const int D = topology.dim() - 1;
-    auto cells = topology.connectivity(D, 0);
-    assert(cells);
-    for (int c = 0; c < cells->num_nodes(); ++c)
+    const int tdim = topology.dim();
+    auto c_to_f = topology.connectivity(tdim, tdim - 1);
+    assert(c_to_f);
+    for (int c = 0; c < c_to_f->num_nodes(); ++c)
     {
-        sp.insert(dofmaps[0].get().cell_dofs(c),
-                  dofmaps[1].get().cell_dofs(c));
+        for (auto f : c_to_f->links(c))
+        {
+            // FIXME This is not correct. Needs to insert for all facets
+            // owned by cell. Should just need a double loop over facets
+            sp.insert(dofmaps[0].get().cell_dofs(f),
+                      dofmaps[1].get().cell_dofs(f));
+        }
     }
 
     // TODO Assemble here or return unassembled?

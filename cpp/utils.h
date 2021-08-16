@@ -32,9 +32,9 @@ namespace dolfinx_hdg::fem
         assert(mesh);
 
         const int tdim = mesh->topology().dim();
-        mesh->topology_mutable().create_entities(tdim - 1);
         // TODO Is this needed?
-        // mesh->topology_mutable().create_connectivity(tdim - 1, tdim);
+        mesh->topology_mutable().create_entities(tdim - 1);
+        mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
 
         return create_sparsity_pattern(mesh->topology(), dofmaps);
     }
