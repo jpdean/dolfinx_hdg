@@ -26,12 +26,13 @@ dolfinx::la::SparsityPattern dolfinx_hdg::fem::create_sparsity_pattern(
     assert(c_to_f);
     for (int c = 0; c < c_to_f->num_nodes(); ++c)
     {
-        for (auto f : c_to_f->links(c))
+        for (auto f_1 : c_to_f->links(c))
         {
-            // FIXME This is not correct. Needs to insert for all facets
-            // owned by cell. Should just need a double loop over facets
-            sp.insert(dofmaps[0].get().cell_dofs(f),
-                      dofmaps[1].get().cell_dofs(f));
+            for (auto f_2 : c_to_f->links(c))
+            {
+                sp.insert(dofmaps[0].get().cell_dofs(f_1),
+                          dofmaps[1].get().cell_dofs(f_2));
+            }
         }
     }
 
