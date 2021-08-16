@@ -11,7 +11,7 @@ option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 
 find_package(DOLFINX REQUIRED)
 
-add_library(${PROJECT_NAME} hello.cpp hello.h petsc.cpp petsc.h utils.cpp utils.h)
+add_library(${PROJECT_NAME} hello.cpp hello.h utils.cpp utils.h)
 
 # state that anybody linking to us needs to include the current source dir
 # to find hello.h, while we don't.
@@ -26,7 +26,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC dolfinx)
 install(TARGETS ${PROJECT_NAME}
         DESTINATION lib
         EXPORT dolfinx_hdg_targets)
-install(FILES hello.h petsc.h utils.h DESTINATION include/${PROJECT_NAME})
+install(FILES hello.h utils.h DESTINATION include/${PROJECT_NAME})
 
 # install the configuration targets
 install(EXPORT dolfinx_hdg_targets
