@@ -66,6 +66,12 @@ namespace dolfinx_hdg::fem::impl
             for (auto f : c_to_f->links(c))
             {
                 std::cout << "  f = " << f << "\n";
+                std::fill(Ae.begin(), Ae.end(), 1);
+                auto dofs0 = dofmap0.links(f);
+                auto dofs1 = dofmap1.links(f);
+                mat_set(dofs0.size(), dofs0.data(),
+                        dofs1.size(), dofs1.data(),
+                        Ae.data());
             }
         }
     }
