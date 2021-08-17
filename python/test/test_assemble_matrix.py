@@ -22,7 +22,10 @@ a10 = inner(u, vbar) * ds
 a01 = inner(v, ubar) * ds
 a11 = inner(ubar, vbar) * dx
 
-A = assemble_matrix(a11)
+a = [[a00, a01],
+     [a10, a11]]
+
+A = assemble_matrix(a)
 A.assemble()
 
 print(A[:, :])

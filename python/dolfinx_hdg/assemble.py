@@ -8,20 +8,22 @@ from dolfinx.fem.assemble import _create_cpp_form
 from dolfinx_hdg.cpp import create_matrix, assemble_matrix_petsc
 
 @functools.singledispatch
-def assemble_matrix(a: typing.Union[Form, dolfinx.cpp.fem.Form],
+def assemble_matrix(a: typing.List[typing.List[
+                        typing.Union[Form, dolfinx.cpp.fem.Form]]],
                     bcs: typing.List[DirichletBC] = [],
                     diagonal: float = 1.0) -> PETSc.Mat:
     """Assemble bilinear form into a matrix. The returned matrix is not
     finalised, i.e. ghost values are not accumulated.
 
     """
-    A = create_matrix(_create_cpp_form(a))
+    A = create_matrix(_create_cpp_form(a[1][1]))
     return assemble_matrix(A, a, bcs, diagonal)
 
 
 @assemble_matrix.register(PETSc.Mat)
 def _(A: PETSc.Mat,
-      a: typing.Union[Form, dolfinx.cpp.fem.Form],
+      a: typing.List[typing.List[
+                     typing.Union[Form, dolfinx.cpp.fem.Form]]],
       bcs: typing.List[DirichletBC] = [],
       diagonal: float = 1.0) -> PETSc.Mat:
     """Assemble bilinear form into a matrix. The returned matrix is not
@@ -30,8 +32,10 @@ def _(A: PETSc.Mat,
     """
     _a = _create_cpp_form(a)
     assemble_matrix_petsc(A, _a, bcs)
-    if _a.function_spaces[0].id == _a.function_spaces[1].id:
+    # TODO When will this not be true? Mixed facet HDG terms?
+    if _a[1][1].function_spaces[0].id == _a[1][1].function_spaces[1].id:
         A.assemblyBegin(PETSc.Mat.AssemblyType.FLUSH)
         A.assemblyEnd(PETSc.Mat.AssemblyType.FLUSH)
-        dolfinx.cpp.fem.insert_diagonal(A, _a.function_spaces[0], bcs, diagonal)
+        dolfinx.cpp.fem.insert_diagonal(A, _a[1][1].function_spaces[0],
+                                        bcs, diagonal)
     return A
