@@ -55,7 +55,10 @@ namespace dolfinx_hdg::fem::impl
             a[0][0]->kernel(dolfinx::fem::IntegralType::cell, -1);
         const auto &a00_facet_kernel =
             a[0][0]->kernel(dolfinx::fem::IntegralType::exterior_facet, -1);
+        const auto &a01_kernel =
+            a[0][1]->kernel(dolfinx::fem::IntegralType::exterior_facet, -1);
 
+        // FIXME This is clumsy. Make helper array / function?
         // Dofmaps and block size for the a00 form
         const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap00_0 =
             a[0][0]->function_spaces().at(0)->dofmap()->list();
@@ -66,13 +69,28 @@ namespace dolfinx_hdg::fem::impl
         const int num_dofs00_0 = bs00_0 * dofmap00_0.links(0).size();
         const int num_dofs00_1 = bs00_1 * dofmap00_1.links(0).size();
 
+        // Dofmaps and block size for the a01 form
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap01_0 =
+            a[0][1]->function_spaces().at(0)->dofmap()->list();
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap01_1 =
+            a[0][1]->function_spaces().at(1)->dofmap()->list();
+        const int bs01_0 = a[0][1]->function_spaces().at(0)->dofmap()->bs();
+        const int bs01_1 = a[0][1]->function_spaces().at(1)->dofmap()->bs();
+        const int num_dofs01_0 = bs01_0 * dofmap01_0.links(0).size();
+        const int num_dofs01_1 = bs01_1 * dofmap01_1.links(0).size();
+
         // TODO Is this needed?
         mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
         auto c_to_f = mesh->topology().connectivity(tdim, tdim - 1);
         assert(c_to_f);
 
+        mesh->topology_mutable().create_entity_permutations();
+        const std::vector<std::uint8_t> &perms =
+            mesh->topology().get_facet_permutations();
+
         for (int c = 0; c < c_to_f->num_nodes(); ++c)
         {
+            std::cout << "c = " << c << "\n";
             xt::xarray<double> Ae00 = xt::zeros<double>({num_dofs00_0,
                                                          num_dofs00_1});
 
@@ -102,13 +120,20 @@ namespace dolfinx_hdg::fem::impl
 
                 std::cout << "f = " << f << "  local_f = " << local_f << "\n";
 
-                // TODO Permutatations
+                // TODO Permutatations. This applies to other kernel calls
                 a00_cell_kernel(Ae00.data(), coeffs.row(c).data(), constants.data(),
-                                coordinate_dofs.data(), &local_f, nullptr);
-            }
+                                coordinate_dofs.data(), &local_f,
+                                &perms[c * facets.size() + local_f]);
 
-            std::cout << c << "\n";
-            std::cout << Ae00 << "\n";
+                xt::xarray<double> Ae01 = xt::zeros<double>({num_dofs01_0,
+                                                             num_dofs01_1});
+
+                a01_kernel(Ae01.data(), coeffs.row(c).data(), constants.data(),
+                           coordinate_dofs.data(), &local_f,
+                           &perms[c * facets.size() + local_f]);
+
+                std::cout << Ae01 << "\n";
+            }
         }
     }
 }
