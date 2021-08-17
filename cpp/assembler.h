@@ -24,12 +24,16 @@ namespace dolfinx_hdg::fem
         const std::vector<
             std::shared_ptr<const dolfinx::fem::DirichletBC<T>>> &bcs)
     {
-        const dolfinx::fem::Form<T> &a_facet = *a[1][1];
+        // FIXME This or const dolfinx::fem::Form<T> &a_facet = *a[1][1];
+        // with a_facet.function_spaces() etc.?
+        // FIXME Should this be a const std::shared_ptr?
+        // TODO Use auto?
+        std::shared_ptr<const dolfinx::fem::Form<T>> a_facet = a[1][1];
         // Index maps for dof ranges
-        auto map0 = a_facet.function_spaces().at(0)->dofmap()->index_map;
-        auto map1 = a_facet.function_spaces().at(1)->dofmap()->index_map;
-        auto bs0 = a_facet.function_spaces().at(0)->dofmap()->index_map_bs();
-        auto bs1 = a_facet.function_spaces().at(1)->dofmap()->index_map_bs();
+        auto map0 = a_facet->function_spaces().at(0)->dofmap()->index_map;
+        auto map1 = a_facet->function_spaces().at(1)->dofmap()->index_map;
+        auto bs0 = a_facet->function_spaces().at(0)->dofmap()->index_map_bs();
+        auto bs1 = a_facet->function_spaces().at(1)->dofmap()->index_map_bs();
 
         // Build dof markers
         std::vector<bool> dof_marker0, dof_marker1;
@@ -41,13 +45,13 @@ namespace dolfinx_hdg::fem
         {
             assert(bcs[k]);
             assert(bcs[k]->function_space());
-            if (a_facet.function_spaces().at(0)->contains(*bcs[k]->function_space()))
+            if (a_facet->function_spaces().at(0)->contains(*bcs[k]->function_space()))
             {
                 dof_marker0.resize(dim0, false);
                 bcs[k]->mark_dofs(dof_marker0);
             }
 
-            if (a_facet.function_spaces().at(1)->contains(*bcs[k]->function_space()))
+            if (a_facet->function_spaces().at(1)->contains(*bcs[k]->function_space()))
             {
                 dof_marker1.resize(dim1, false);
                 bcs[k]->mark_dofs(dof_marker1);
@@ -56,7 +60,7 @@ namespace dolfinx_hdg::fem
 
         // Assemble
         // FIXME Pass a instead of a_facet
-        impl::assemble_matrix(mat_add, a_facet, constants, coeffs, dof_marker0,
+        impl::assemble_matrix(mat_add, *a_facet, constants, coeffs, dof_marker0,
                               dof_marker1);
     }
 
