@@ -215,6 +215,8 @@ namespace dolfinx_hdg::fem::impl
             // NOTE: xt::linalg::dot does matrix-vector and matrix matrix multiplication
             Ae_sc -= xt::linalg::dot(Ae10, xt::linalg::solve(Ae00, Ae01));
             std::cout << Ae_sc << "\n";
+
+            // TODO Dirichlet BCs
         }
     }
 }
