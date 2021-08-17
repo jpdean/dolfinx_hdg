@@ -194,13 +194,19 @@ namespace dolfinx_hdg::fem::impl
                                 std::next(fact_coordinate_dofs.begin(), 3 * i));
                 }
 
-                // FIXME Why does this give the same matrix for all facets?
                 xt::xarray<double> Ae11_f = xt::zeros<double>({num_dofs11_0,
                                                                num_dofs11_1});
                 a11_kernel(Ae11_f.data(), coeffs.row(c).data(), constants.data(),
-                           coordinate_dofs.data(), nullptr, nullptr);
-                
-                std::cout << Ae11_f << "\n";
+                           fact_coordinate_dofs.data(), nullptr, nullptr);
+
+                // NOTE Could compute from num_dofs11_* but the correct index
+                // can be found from start_row / start_col etc.
+                // FIXME/TODO num_dofs10_0 will be same as num_dofs11_0 (though
+                // num_dofs10_1 will not be the same as num_dofs11_1). Simplify
+                // using this fact
+                xt::view(Ae11,
+                         xt::range(start_row, end_row),
+                         xt::range(start_col, end_col)) = Ae11_f;
             }
 
             std::cout << "Ae00 = \n"
@@ -209,6 +215,8 @@ namespace dolfinx_hdg::fem::impl
                       << Ae01 << "\n";
             std::cout << "Ae10 = \n"
                       << Ae10 << "\n";
+            std::cout << "Ae11 = \n"
+                      << Ae11 << "\n";
         }
     }
 }
