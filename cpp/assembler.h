@@ -28,6 +28,7 @@ namespace dolfinx_hdg::fem
         // with a_facet.function_spaces() etc.?
         // FIXME Should this be a const std::shared_ptr?
         // TODO Use auto?
+        // TODO Think of better name for a_facet
         std::shared_ptr<const dolfinx::fem::Form<T>> a_facet = a[1][1];
         // Index maps for dof ranges
         auto map0 = a_facet->function_spaces().at(0)->dofmap()->index_map;
@@ -60,7 +61,7 @@ namespace dolfinx_hdg::fem
 
         // Assemble
         // FIXME Pass a instead of a_facet
-        impl::assemble_matrix(mat_add, *a_facet, constants, coeffs, dof_marker0,
+        impl::assemble_matrix(mat_add, a, constants, coeffs, dof_marker0,
                               dof_marker1);
     }
 
