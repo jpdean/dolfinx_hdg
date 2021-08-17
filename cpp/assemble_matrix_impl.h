@@ -93,6 +93,12 @@ namespace dolfinx_hdg::fem::impl
             std::cout << "c = " << c << "\n";
             xt::xarray<double> Ae00 = xt::zeros<double>({num_dofs00_0,
                                                          num_dofs00_1});
+            
+            auto cell_facets = c_to_f->links(c);
+            // FIXME Why can't I put this in {}?
+            const int Ae01_num_cols = cell_facets.size() * num_dofs01_1;
+            xt::xarray<double> Ae01 =
+                xt::zeros<double>({num_dofs01_0, Ae01_num_cols});
 
             // Get cell coordinates/geometry
             auto x_dofs = x_dofmap.links(c);
@@ -108,31 +114,30 @@ namespace dolfinx_hdg::fem::impl
             a00_cell_kernel(Ae00.data(), coeffs.row(c).data(), constants.data(),
                             coordinate_dofs.data(), nullptr, nullptr);
 
-            for (auto f : c_to_f->links(c))
+            for (auto f : cell_facets)
             {
                 // Get local index of facet with respect to the cell
                 // TODO Could just loop through local facets or do this
                 // some other way
-                auto facets = c_to_f->links(c);
-                auto it = std::find(facets.begin(), facets.end(), f);
-                assert(it != facets.end());
-                const int local_f = std::distance(facets.begin(), it);
+                auto it = std::find(cell_facets.begin(), cell_facets.end(), f);
+                assert(it != cell_facets.end());
+                const int local_f = std::distance(cell_facets.begin(), it);
 
                 std::cout << "f = " << f << "  local_f = " << local_f << "\n";
 
                 // TODO Permutatations. This applies to other kernel calls
                 a00_cell_kernel(Ae00.data(), coeffs.row(c).data(), constants.data(),
                                 coordinate_dofs.data(), &local_f,
-                                &perms[c * facets.size() + local_f]);
+                                &perms[c * cell_facets.size() + local_f]);
 
-                xt::xarray<double> Ae01 = xt::zeros<double>({num_dofs01_0,
+                xt::xarray<double> Ae01_f = xt::zeros<double>({num_dofs01_0,
                                                              num_dofs01_1});
 
-                a01_kernel(Ae01.data(), coeffs.row(c).data(), constants.data(),
+                a01_kernel(Ae01_f.data(), coeffs.row(c).data(), constants.data(),
                            coordinate_dofs.data(), &local_f,
-                           &perms[c * facets.size() + local_f]);
+                           &perms[c * cell_facets.size() + local_f]);
 
-                std::cout << Ae01 << "\n";
+                std::cout << Ae01_f << "\n";
             }
         }
     }
