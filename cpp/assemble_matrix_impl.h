@@ -18,6 +18,7 @@
 #include <iostream>
 #include <xtensor/xarray.hpp>
 #include <xtensor/xio.hpp> // To cout xtensor arrays
+#include <xtensor-blas/xlinalg.hpp>
 
 namespace dolfinx_hdg::fem::impl
 {
@@ -115,10 +116,17 @@ namespace dolfinx_hdg::fem::impl
         for (int c = 0; c < c_to_f->num_nodes(); ++c)
         {
             std::cout << "c = " << c << "\n";
+
+            // Matrix to store the statically condensed system
+            auto cell_facets = c_to_f->links(c);
+            const int Ae_sc_num_rows = cell_facets.size() * num_dofs11_0;
+            const int Ae_sc_num_cols = cell_facets.size() * num_dofs11_1;
+            xt::xarray<double> Ae_sc = xt::zeros<double>({Ae_sc_num_rows,
+                                                          Ae_sc_num_cols});
+
             xt::xarray<double> Ae00 = xt::zeros<double>({num_dofs00_0,
                                                          num_dofs00_1});
 
-            auto cell_facets = c_to_f->links(c);
             // FIXME Why can't I put this in {}?
             const int Ae01_num_cols = cell_facets.size() * num_dofs01_1;
             xt::xarray<double> Ae01 =
@@ -127,11 +135,6 @@ namespace dolfinx_hdg::fem::impl
             const int Ae10_num_rows = cell_facets.size() * num_dofs10_0;
             xt::xarray<double> Ae10 =
                 xt::zeros<double>({Ae10_num_rows, num_dofs10_1});
-
-            const int Ae11_num_rows = cell_facets.size() * num_dofs11_0;
-            const int Ae11_num_cols = cell_facets.size() * num_dofs11_1;
-            xt::xarray<double> Ae11 = xt::zeros<double>({Ae11_num_rows,
-                                                         Ae11_num_cols});
 
             // Get cell coordinates/geometry
             auto x_dofs = x_dofmap.links(c);
@@ -204,19 +207,14 @@ namespace dolfinx_hdg::fem::impl
                 // FIXME/TODO num_dofs10_0 will be same as num_dofs11_0 (though
                 // num_dofs10_1 will not be the same as num_dofs11_1). Simplify
                 // using this fact
-                xt::view(Ae11,
+                xt::view(Ae_sc,
                          xt::range(start_row, end_row),
                          xt::range(start_col, end_col)) = Ae11_f;
             }
 
-            std::cout << "Ae00 = \n"
-                      << Ae00 << "\n";
-            std::cout << "Ae01 = \n"
-                      << Ae01 << "\n";
-            std::cout << "Ae10 = \n"
-                      << Ae10 << "\n";
-            std::cout << "Ae11 = \n"
-                      << Ae11 << "\n";
+            // NOTE: xt::linalg::dot does matrix-vector and matrix matrix multiplication
+            Ae_sc -= xt::linalg::dot(Ae10, xt::linalg::solve(Ae00, Ae01));
+            std::cout << Ae_sc << "\n";
         }
     }
 }
