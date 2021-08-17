@@ -79,6 +79,16 @@ namespace dolfinx_hdg::fem::impl
         const int num_dofs01_0 = bs01_0 * dofmap01_0.links(0).size();
         const int num_dofs01_1 = bs01_1 * dofmap01_1.links(0).size();
 
+        // Dofmaps and block size for the a10 form
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap10_0 =
+            a[1][0]->function_spaces().at(0)->dofmap()->list();
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap10_1 =
+            a[1][0]->function_spaces().at(1)->dofmap()->list();
+        const int bs10_0 = a[1][0]->function_spaces().at(0)->dofmap()->bs();
+        const int bs10_1 = a[1][0]->function_spaces().at(1)->dofmap()->bs();
+        const int num_dofs10_0 = bs10_0 * dofmap10_0.links(0).size();
+        const int num_dofs10_1 = bs10_1 * dofmap10_1.links(0).size();
+
         // TODO Is this needed?
         mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
         auto c_to_f = mesh->topology().connectivity(tdim, tdim - 1);
@@ -99,6 +109,10 @@ namespace dolfinx_hdg::fem::impl
             const int Ae01_num_cols = cell_facets.size() * num_dofs01_1;
             xt::xarray<double> Ae01 =
                 xt::zeros<double>({num_dofs01_0, Ae01_num_cols});
+
+            const int Ae10_num_rows = cell_facets.size() * num_dofs10_0;
+            xt::xarray<double> Ae10 =
+                xt::zeros<double>({Ae10_num_rows, num_dofs10_1});
 
             // Get cell coordinates/geometry
             auto x_dofs = x_dofmap.links(c);
@@ -134,7 +148,7 @@ namespace dolfinx_hdg::fem::impl
                 a01_kernel(Ae01_f.data(), coeffs.row(c).data(), constants.data(),
                            coordinate_dofs.data(), &local_f,
                            &perms[c * cell_facets.size() + local_f]);
-                
+
                 // NOTE: For loop loops through global facet nums, but I think
                 // this is in order of ascending local facet num. Check though
                 // before relying on this.
@@ -143,8 +157,12 @@ namespace dolfinx_hdg::fem::impl
                 xt::view(Ae01, xt::all(), xt::range(start_col, end_col)) = Ae01_f;
             }
 
-            std::cout << "Ae00 = \n" << Ae00 << "\n";
-            std::cout << "Ae01 = \n" << Ae01 << "\n";
+            std::cout << "Ae00 = \n"
+                      << Ae00 << "\n";
+            std::cout << "Ae01 = \n"
+                      << Ae01 << "\n";
+            std::cout << "Ae10 = \n"
+                      << Ae10 << "\n";
         }
     }
 }
