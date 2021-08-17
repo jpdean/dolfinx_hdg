@@ -123,8 +123,6 @@ namespace dolfinx_hdg::fem::impl
                 assert(it != cell_facets.end());
                 const int local_f = std::distance(cell_facets.begin(), it);
 
-                std::cout << "f = " << f << "  local_f = " << local_f << "\n";
-
                 // TODO Permutatations. This applies to other kernel calls
                 a00_facet_kernel(Ae00.data(), coeffs.row(c).data(), constants.data(),
                                  coordinate_dofs.data(), &local_f,
@@ -136,11 +134,17 @@ namespace dolfinx_hdg::fem::impl
                 a01_kernel(Ae01_f.data(), coeffs.row(c).data(), constants.data(),
                            coordinate_dofs.data(), &local_f,
                            &perms[c * cell_facets.size() + local_f]);
-
-                std::cout << Ae01_f << "\n";
+                
+                // NOTE: For loop loops through global facet nums, but I think
+                // this is in order of ascending local facet num. Check though
+                // before relying on this.
+                const int start_col = local_f * num_dofs01_1;
+                const int end_col = start_col + num_dofs01_1;
+                xt::view(Ae01, xt::all(), xt::range(start_col, end_col)) = Ae01_f;
             }
 
-            std::cout << Ae00 << "\n";
+            std::cout << "Ae00 = \n" << Ae00 << "\n";
+            std::cout << "Ae01 = \n" << Ae01 << "\n";
         }
     }
 }
