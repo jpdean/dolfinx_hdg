@@ -57,6 +57,8 @@ namespace dolfinx_hdg::fem::impl
             a[0][0]->kernel(dolfinx::fem::IntegralType::exterior_facet, -1);
         const auto &a01_kernel =
             a[0][1]->kernel(dolfinx::fem::IntegralType::exterior_facet, -1);
+        const auto &a10_kernel =
+            a[1][0]->kernel(dolfinx::fem::IntegralType::exterior_facet, -1);
 
         // FIXME This is clumsy. Make helper array / function?
         // Dofmaps and block size for the a00 form
@@ -155,6 +157,17 @@ namespace dolfinx_hdg::fem::impl
                 const int start_col = local_f * num_dofs01_1;
                 const int end_col = start_col + num_dofs01_1;
                 xt::view(Ae01, xt::all(), xt::range(start_col, end_col)) = Ae01_f;
+
+                xt::xarray<double> Ae10_f = xt::zeros<double>({num_dofs10_0,
+                                                               num_dofs10_1});
+                a10_kernel(Ae10_f.data(), coeffs.row(c).data(), constants.data(),
+                           coordinate_dofs.data(), &local_f,
+                           &perms[c * cell_facets.size() + local_f]);
+                
+                const int start_row = local_f * num_dofs10_0;
+                const int end_row = start_row + num_dofs10_0;
+                xt::view(Ae10, xt::range(start_row, end_row), xt::all()) = Ae10_f;
+                
             }
 
             std::cout << "Ae00 = \n"
