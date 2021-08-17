@@ -59,6 +59,8 @@ namespace dolfinx_hdg::fem::impl
             a[0][1]->kernel(dolfinx::fem::IntegralType::exterior_facet, -1);
         const auto &a10_kernel =
             a[1][0]->kernel(dolfinx::fem::IntegralType::exterior_facet, -1);
+        const auto &a11_kernel =
+            a[1][1]->kernel(dolfinx::fem::IntegralType::cell, -1);
 
         // FIXME This is clumsy. Make helper array / function?
         // Dofmaps and block size for the a00 form
@@ -91,6 +93,16 @@ namespace dolfinx_hdg::fem::impl
         const int num_dofs10_0 = bs10_0 * dofmap10_0.links(0).size();
         const int num_dofs10_1 = bs10_1 * dofmap10_1.links(0).size();
 
+        // Dofmaps and block size for the a11 form
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap11_0 =
+            a[1][1]->function_spaces().at(0)->dofmap()->list();
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap11_1 =
+            a[1][1]->function_spaces().at(1)->dofmap()->list();
+        const int bs11_0 = a[1][1]->function_spaces().at(0)->dofmap()->bs();
+        const int bs11_1 = a[1][1]->function_spaces().at(1)->dofmap()->bs();
+        const int num_dofs11_0 = bs11_0 * dofmap11_0.links(0).size();
+        const int num_dofs11_1 = bs11_1 * dofmap11_1.links(0).size();
+
         // TODO Is this needed?
         mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
         auto c_to_f = mesh->topology().connectivity(tdim, tdim - 1);
@@ -115,6 +127,11 @@ namespace dolfinx_hdg::fem::impl
             const int Ae10_num_rows = cell_facets.size() * num_dofs10_0;
             xt::xarray<double> Ae10 =
                 xt::zeros<double>({Ae10_num_rows, num_dofs10_1});
+
+            const int Ae11_num_rows = cell_facets.size() * num_dofs11_0;
+            const int Ae11_num_cols = cell_facets.size() * num_dofs11_1;
+            xt::xarray<double> Ae11 = xt::zeros<double>({Ae11_num_rows,
+                                                         Ae11_num_cols});
 
             // Get cell coordinates/geometry
             auto x_dofs = x_dofmap.links(c);
@@ -163,11 +180,27 @@ namespace dolfinx_hdg::fem::impl
                 a10_kernel(Ae10_f.data(), coeffs.row(c).data(), constants.data(),
                            coordinate_dofs.data(), &local_f,
                            &perms[c * cell_facets.size() + local_f]);
-                
+
                 const int start_row = local_f * num_dofs10_0;
                 const int end_row = start_row + num_dofs10_0;
                 xt::view(Ae10, xt::range(start_row, end_row), xt::all()) = Ae10_f;
+
+                // FIXME Get facet coord dofs properly and check
+                auto facet_x_dofs = mesh->topology().connectivity(tdim - 1, tdim - 2)->links(f);
+                std::vector<double> fact_coordinate_dofs(3 * mesh->topology().connectivity(tdim - 1, tdim - 2)->num_links(0));
+                for (std::size_t i = 0; i < facet_x_dofs.size(); ++i)
+                {
+                    std::copy_n(xt::row(x_g, facet_x_dofs[i]).begin(), 3,
+                                std::next(fact_coordinate_dofs.begin(), 3 * i));
+                }
+
+                // FIXME Why does this give the same matrix for all facets?
+                xt::xarray<double> Ae11_f = xt::zeros<double>({num_dofs11_0,
+                                                               num_dofs11_1});
+                a11_kernel(Ae11_f.data(), coeffs.row(c).data(), constants.data(),
+                           coordinate_dofs.data(), nullptr, nullptr);
                 
+                std::cout << Ae11_f << "\n";
             }
 
             std::cout << "Ae00 = \n"
