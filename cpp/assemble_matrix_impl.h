@@ -115,8 +115,6 @@ namespace dolfinx_hdg::fem::impl
 
         for (int c = 0; c < c_to_f->num_nodes(); ++c)
         {
-            std::cout << "c = " << c << "\n";
-
             // Matrix to store the statically condensed system
             auto cell_facets = c_to_f->links(c);
             const int Ae_sc_num_rows = cell_facets.size() * num_dofs11_0;
@@ -214,9 +212,37 @@ namespace dolfinx_hdg::fem::impl
 
             // NOTE: xt::linalg::dot does matrix-vector and matrix matrix multiplication
             Ae_sc -= xt::linalg::dot(Ae10, xt::linalg::solve(Ae00, Ae01));
-            std::cout << Ae_sc << "\n";
 
             // TODO Dirichlet BCs
+
+            // Double loop over cell facets to assemble
+            // FIXME Is there a better way?
+            // TODO Here I use cell_facets[local_facet] = global_facet. Double check and
+            // see if this is better for above or when making sparsity pattern!
+            for (int local_f_i = 0; local_f_i < cell_facets.size(); ++local_f_i)
+            {
+                for (int local_f_j = 0; local_f_j < cell_facets.size(); ++local_f_j)
+                {
+                    const int f_i = cell_facets[local_f_i];
+                    const int f_j = cell_facets[local_f_j];
+
+                    auto dofs0 = dofmap11_0.links(f_i);
+                    auto dofs1 = dofmap11_1.links(f_j);
+
+                    // Matrix corresponding to dofs of facets f_i and f_j
+                    auto Ae_sc_f_ij =
+                        xt::view(Ae_sc,
+                                 xt::range(local_f_i * num_dofs11_0,
+                                           local_f_i * num_dofs11_0 + num_dofs11_0),
+                                 xt::range(local_f_j * num_dofs11_1,
+                                           local_f_j * num_dofs11_1 + num_dofs11_1));
+
+                    // NOTE dofs0.size() is same as num_dofs11_0 etc.
+                    mat_set(dofs0.size(), dofs0.data(),
+                            dofs1.size(), dofs1.data(),
+                            Ae_sc_f_ij.data());
+                }
+            }
         }
     }
 }
