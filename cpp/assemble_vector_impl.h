@@ -23,7 +23,9 @@
 namespace dolfinx_hdg::fem::impl
 {
     template <typename T>
-    void assemble_vector(xtl::span<T> b, const dolfinx::fem::Form<T> &L,
+    void assemble_vector(xtl::span<T> b,
+                         const std::vector<std::shared_ptr<
+                             const dolfinx::fem::Form<PetscScalar>>> &L,
                          const xtl::span<const T> &constants,
                          const dolfinx::array2d<T> &coeffs)
     {

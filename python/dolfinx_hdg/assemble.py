@@ -26,8 +26,7 @@ def assemble_vector(L: typing.List[
         _L[1].function_spaces[0].dofmap.index_map_bs)
     with b.localForm() as b_local:
         b_local.set(0.0)
-        # FIXME Pass L
-        dolfinx_hdg.cpp.assemble_vector(b_local.array_w, _L[1])
+        dolfinx_hdg.cpp.assemble_vector(b_local.array_w, _L)
     return b
 
 

@@ -15,7 +15,9 @@
 namespace dolfinx_hdg::fem
 {
     template <typename T>
-    void assemble_vector(xtl::span<T> b, const dolfinx::fem::Form<T> &L,
+    void assemble_vector(xtl::span<T> b,
+                         const std::vector<std::shared_ptr<
+                             const dolfinx::fem::Form<PetscScalar>>> &L,
                          const xtl::span<const T> &constants,
                          const dolfinx::array2d<T> &coeffs)
     {
@@ -23,10 +25,17 @@ namespace dolfinx_hdg::fem
     }
 
     template <typename T>
-    void assemble_vector(xtl::span<T> b, const dolfinx::fem::Form<T> &L)
+    void assemble_vector(xtl::span<T> b,
+                         const std::vector<std::shared_ptr<
+                             const dolfinx::fem::Form<PetscScalar>>> &L)
     {
-        const std::vector<T> constants = dolfinx::fem::pack_constants(L);
-        const dolfinx::array2d<T> coeffs = dolfinx::fem::pack_coefficients(L);
+        // FIXME Think about the best way to do this. Currently, this only
+        // packs constants / coefficients for the facet space form and these
+        // are accessed incorrectly later
+        const std::vector<T> constants =
+            dolfinx::fem::pack_constants(*L[1]);
+        const dolfinx::array2d<T> coeffs =
+            dolfinx::fem::pack_coefficients(*L[1]);
         assemble_vector(b, L, tcb::make_span(constants), coeffs);
     }
 
@@ -92,7 +101,8 @@ namespace dolfinx_hdg::fem
             const dolfinx::fem::DirichletBC<T>>> &bcs)
     {
         // FIXME Think about the best way to do this. Currently, this only
-        // packs constants / coefficients for the facet space form
+        // packs constants / coefficients for the facet space form and these
+        // are accessed incorrectly later
         // FIXME Is the shared pointer needed for a? Before, a was passed
         // to pack constants / coefficients without the dereference op.
         // Prepare constants and coefficients
