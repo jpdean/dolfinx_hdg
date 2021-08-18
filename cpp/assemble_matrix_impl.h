@@ -22,6 +22,95 @@
 
 namespace dolfinx_hdg::fem::impl
 {
+    // NOTE This approach reuses code and makes for a simpler
+    // implementation, but means looping over facets more that
+    // once. All cell matrices could be computed in one go
+    template <typename T>
+    xt::xarray<double> assemble_cell_matrix(
+        const dolfinx::fem::Form<T> &a,
+        const int cell,
+        const tcb::span<const int> &cell_facets,
+        const xtl::span<const T> &constants,
+        const dolfinx::array2d<T> &coeffs)
+    {
+        // TODO Pass just dofmap?
+        std::shared_ptr<const dolfinx::mesh::Mesh> mesh = a.mesh();
+        assert(mesh);
+        const int tdim = mesh->topology().dim();
+        const dolfinx::graph::AdjacencyList<std::int32_t> &x_dofmap =
+            mesh->geometry().dofmap();
+        const std::size_t num_dofs_g = x_dofmap.num_links(cell);
+        const xt::xtensor<double, 2> &x_g = mesh->geometry().x();
+        std::vector<double> coordinate_dofs(3 * num_dofs_g);
+        auto x_dofs = x_dofmap.links(cell);
+        for (std::size_t i = 0; i < x_dofs.size(); ++i)
+        {
+            std::copy_n(xt::row(x_g, x_dofs[i]).begin(), 3,
+                        std::next(coordinate_dofs.begin(), 3 * i));
+        }
+        // NOTE These are created outside, but check mesh isn't different
+        // for each form!
+        const std::vector<std::uint8_t> &perms =
+            mesh->topology().get_facet_permutations();
+
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap_0 =
+            a.function_spaces().at(0)->dofmap()->list();
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap_1 =
+            a.function_spaces().at(1)->dofmap()->list();
+        const int bs_0 = a.function_spaces().at(0)->dofmap()->bs();
+        const int bs_1 = a.function_spaces().at(1)->dofmap()->bs();
+        const int num_dofs_0 = bs_0 * dofmap_0.links(0).size();
+        const int num_dofs_1 = bs_1 * dofmap_1.links(0).size();
+        const int codim_0 = a.function_spaces().at(0)->codimension();
+        const int codim_1 = a.function_spaces().at(1)->codimension();
+
+        // TODO Check codim == 0 or 1
+        const int num_rows =
+            codim_0 == 0 ? num_dofs_0 : cell_facets.size() * num_dofs_0;
+        const int num_cols =
+            codim_1 == 0 ? num_dofs_1 : cell_facets.size() * num_dofs_1;
+        xt::xarray<double> Ae = xt::zeros<double>({num_rows, num_cols});
+
+        // If we have a cell-cell form, call cell kernel here
+        // FIXME Integral
+        if (codim_0 == 0 && codim_1 == 0)
+        {
+            for (int i : a.integral_ids(dolfinx::fem::IntegralType::cell))
+            {
+                if (i == -1)
+                {
+                    const auto &kernel =
+                        a.kernel(dolfinx::fem::IntegralType::cell, i);
+                    kernel(Ae.data(), coeffs.row(cell).data(), constants.data(),
+                           coordinate_dofs.data(), nullptr, nullptr);
+                }
+            }
+        }
+
+        for (int local_f = 0; local_f < cell_facets.size(); ++local_f)
+        {
+            const int f = cell_facets[local_f];
+            // If we have a cell-cell form, call facet kernel here
+            if (codim_0 == 0 && codim_1 == 0)
+            {
+                for (int i : a.integral_ids(
+                         dolfinx::fem::IntegralType::exterior_facet))
+                {
+                    if (i == -1)
+                    {
+                        const auto &kernel =
+                            a.kernel(dolfinx::fem::IntegralType::exterior_facet, i);
+                        kernel(Ae.data(), coeffs.row(cell).data(), constants.data(),
+                               coordinate_dofs.data(), &local_f,
+                               &perms[cell * cell_facets.size() + local_f]);
+                    }
+                }
+            }
+        }
+
+        return Ae;
+    }
+
     template <typename T>
     void assemble_matrix(
         const std::function<int(std::int32_t, const std::int32_t *, std::int32_t,
@@ -122,6 +211,24 @@ namespace dolfinx_hdg::fem::impl
             const int Ae_sc_num_cols = cell_facets.size() * num_dofs11_1;
             xt::xarray<double> Ae_sc = xt::zeros<double>({Ae_sc_num_rows,
                                                           Ae_sc_num_cols});
+
+            std::cout << "a[0][0] = \n"
+                      << assemble_cell_matrix(
+                             *a[0][0], c, cell_facets,
+                             constants, coeffs)
+                      << "\na[0][1] = \n"
+                      << assemble_cell_matrix(
+                             *a[0][1], c, cell_facets,
+                             constants, coeffs)
+                      << "\na[1][0] = \n"
+                      << assemble_cell_matrix(
+                             *a[1][0], c, cell_facets,
+                             constants, coeffs)
+                      << "\na[1][1] = \n"
+                      << assemble_cell_matrix(
+                             *a[1][1], c, cell_facets,
+                             constants, coeffs)
+                      << "\n";
 
             xt::xarray<double> Ae00 = xt::zeros<double>({num_dofs00_0,
                                                          num_dofs00_1});
