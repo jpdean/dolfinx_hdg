@@ -17,6 +17,7 @@ add_library(${PROJECT_NAME}
         assembler.h
         petsc.h petsc.cpp
         assemble_matrix_impl.h
+        assemble_vector_impl.h
         static_condensation_helpers.h)
 
 # state that anybody linking to us needs to include the current source dir
@@ -38,6 +39,7 @@ install(FILES
         assembler.h
         petsc.h
         assemble_matrix_impl.h
+        assemble_vector_impl.h
         static_condensation_helpers.h
         DESTINATION include/${PROJECT_NAME})
 

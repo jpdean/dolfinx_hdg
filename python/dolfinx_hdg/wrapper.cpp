@@ -1,5 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <pybind11/numpy.h>
 #include <dolfinx_hdg/hello.h>
 #include <dolfinx_hdg/utils.h>
 #include <dolfinx_hdg/petsc.h>
@@ -34,4 +35,15 @@ PYBIND11_MODULE(cpp, m)
                   dolfinx_hdg::fem::assemble_matrix(
                       dolfinx::la::PETScMatrix::set_block_fn(A, ADD_VALUES), a, bcs);
             });
+
+      m.def(
+          "assemble_vector",
+          [](pybind11::array_t<PetscScalar, pybind11::array::c_style> b,
+             const dolfinx::fem::Form<PetscScalar> &L)
+          {
+                dolfinx_hdg::fem::assemble_vector<PetscScalar>(
+                    xtl::span(b.mutable_data(), b.size()), L);
+          },
+          pybind11::arg("b"), pybind11::arg("L"),
+          "Assemble linear form into an existing vector");
 }

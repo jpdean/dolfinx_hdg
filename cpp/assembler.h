@@ -8,11 +8,28 @@
 #include <dolfinx/fem/utils.h>
 #include <iostream>
 #include "assemble_matrix_impl.h"
+#include "assemble_vector_impl.h"
 #include <vector>
 #include <dolfinx/fem/Constant.h>
 
 namespace dolfinx_hdg::fem
 {
+    template <typename T>
+    void assemble_vector(xtl::span<T> b, const dolfinx::fem::Form<T> &L,
+                         const xtl::span<const T> &constants,
+                         const dolfinx::array2d<T> &coeffs)
+    {
+        impl::assemble_vector(b, L, constants, coeffs);
+    }
+
+    template <typename T>
+    void assemble_vector(xtl::span<T> b, const dolfinx::fem::Form<T> &L)
+    {
+        const std::vector<T> constants = dolfinx::fem::pack_constants(L);
+        const dolfinx::array2d<T> coeffs = dolfinx::fem::pack_coefficients(L);
+        assemble_vector(b, L, tcb::make_span(constants), coeffs);
+    }
+
     template <typename T>
     void assemble_matrix(
         const std::function<int(std::int32_t, const std::int32_t *, std::int32_t,

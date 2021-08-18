@@ -2,7 +2,7 @@ from dolfinx import UnitSquareMesh, FunctionSpace, Function, DirichletBC
 from mpi4py import MPI
 from ufl import (TrialFunction, TestFunction, inner, dx, ds, FacetNormal,
                  grad, dot)
-from dolfinx_hdg.assemble import assemble_matrix
+from dolfinx_hdg.assemble import assemble_matrix, assemble_vector
 import numpy as np
 from dolfinx.fem import locate_dofs_topological
 from dolfinx.mesh import locate_entities_boundary
@@ -31,6 +31,9 @@ a00 = inner(grad(u), grad(v)) * dx - \
 a10 = inner(dot(grad(u), n) - gamma * u, vbar) * ds
 a01 = inner(dot(grad(v), n) - gamma * v, ubar) * ds
 a11 = gamma * inner(ubar, vbar) * dx
+# FIXME Constant doesn't work in my facet space branch
+f0 = inner(1, v) * dx
+f1 = inner(1e-16, vbar) * dx
 
 a = [[a00, a01],
      [a10, a11]]
@@ -45,5 +48,10 @@ bc_bar = DirichletBC(ubar0, dofs_bar)
 
 A = assemble_matrix(a, [bc_bar])
 A.assemble()
+# print(A[:, :])
 
-print(A[:, :])
+f = [f0,
+     f1]
+
+b = assemble_vector(f)
+print(b[:])
