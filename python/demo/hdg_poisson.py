@@ -7,6 +7,7 @@ import numpy as np
 from dolfinx.fem import locate_dofs_topological
 from dolfinx.mesh import locate_entities_boundary
 
+np.set_printoptions(linewidth=200)
 
 n = 1
 mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
@@ -32,12 +33,12 @@ a01 = inner(dot(grad(v), n) - gamma * v, ubar) * ds
 a11 = gamma * inner(ubar, vbar) * dx
 
 a = [[a00, a01],
-    [a10, a11]]
+     [a10, a11]]
 
 # Boundary conditions
 facets = locate_entities_boundary(mesh, 1,
-                                lambda x: np.logical_or(np.logical_or(np.isclose(x[0], 0.0), np.isclose(x[0], 1.0)),
-                                                        np.logical_or(np.isclose(x[1], 0.0), np.isclose(x[1], 1.0))))
+                                  lambda x: np.logical_or(np.logical_or(np.isclose(x[0], 0.0), np.isclose(x[0], 1.0)),
+                                                          np.logical_or(np.isclose(x[1], 0.0), np.isclose(x[1], 1.0))))
 ubar0 = Function(Vbar)
 dofs_bar = locate_dofs_topological(Vbar, 1, facets)
 bc_bar = DirichletBC(ubar0, dofs_bar)
