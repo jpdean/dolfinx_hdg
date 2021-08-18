@@ -32,6 +32,7 @@ namespace dolfinx_hdg::fem::impl
         const dolfinx::array2d<T> &coeffs, const std::vector<bool> &bc0,
         const std::vector<bool> &bc1)
     {
+        // FIXME Vector elements (i.e. block size \neq 1) might break some of this
         std::shared_ptr<const dolfinx::mesh::Mesh> mesh = a[0][0]->mesh();
         assert(mesh);
         const int tdim = mesh->topology().dim();
@@ -236,10 +237,10 @@ namespace dolfinx_hdg::fem::impl
                     // wrong values (the values) from the full Ae_sc array
                     xt::xarray<double> Ae_sc_f_ij =
                         xt::view(Ae_sc,
-                                xt::range(local_f_i * num_dofs11_0,
-                                        local_f_i * num_dofs11_0 + num_dofs11_0),
-                                xt::range(local_f_j * num_dofs11_1,
-                                        local_f_j * num_dofs11_1 + num_dofs11_1));
+                                 xt::range(local_f_i * num_dofs11_0,
+                                           local_f_i * num_dofs11_0 + num_dofs11_0),
+                                 xt::range(local_f_j * num_dofs11_1,
+                                           local_f_j * num_dofs11_1 + num_dofs11_1));
 
                     // NOTE dofs0.size() is same as num_dofs11_0 etc.
                     mat_set(dofs0.size(), dofs0.data(),
