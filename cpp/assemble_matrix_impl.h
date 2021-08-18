@@ -223,6 +223,7 @@ namespace dolfinx_hdg::fem::impl
             {
                 for (int local_f_j = 0; local_f_j < cell_facets.size(); ++local_f_j)
                 {
+
                     const int f_i = cell_facets[local_f_i];
                     const int f_j = cell_facets[local_f_j];
 
@@ -230,12 +231,15 @@ namespace dolfinx_hdg::fem::impl
                     auto dofs1 = dofmap11_1.links(f_j);
 
                     // Matrix corresponding to dofs of facets f_i and f_j
-                    auto Ae_sc_f_ij =
+                    // NOTE Have to cast to xt::xarray<double> (can't just use auto)
+                    // otherwise it returns a view and Ae_sc_f_ij.data() gets the
+                    // wrong values (the values) from the full Ae_sc array
+                    xt::xarray<double> Ae_sc_f_ij =
                         xt::view(Ae_sc,
-                                 xt::range(local_f_i * num_dofs11_0,
-                                           local_f_i * num_dofs11_0 + num_dofs11_0),
-                                 xt::range(local_f_j * num_dofs11_1,
-                                           local_f_j * num_dofs11_1 + num_dofs11_1));
+                                xt::range(local_f_i * num_dofs11_0,
+                                        local_f_i * num_dofs11_0 + num_dofs11_0),
+                                xt::range(local_f_j * num_dofs11_1,
+                                        local_f_j * num_dofs11_1 + num_dofs11_1));
 
                     // NOTE dofs0.size() is same as num_dofs11_0 etc.
                     mat_set(dofs0.size(), dofs0.data(),
