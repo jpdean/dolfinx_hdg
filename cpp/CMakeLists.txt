@@ -16,7 +16,8 @@ add_library(${PROJECT_NAME}
         utils.h utils.cpp
         assembler.h
         petsc.h petsc.cpp
-        assemble_matrix_impl.h)
+        assemble_matrix_impl.h
+        static_condensation_helpers.h)
 
 # state that anybody linking to us needs to include the current source dir
 # to find hello.h, while we don't.
@@ -37,6 +38,7 @@ install(FILES
         assembler.h
         petsc.h
         assemble_matrix_impl.h
+        static_condensation_helpers.h
         DESTINATION include/${PROJECT_NAME})
 
 # install the configuration targets
