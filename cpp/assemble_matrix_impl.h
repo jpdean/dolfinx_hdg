@@ -242,6 +242,40 @@ namespace dolfinx_hdg::fem::impl
                                  xt::range(local_f_j * num_dofs11_1,
                                            local_f_j * num_dofs11_1 + num_dofs11_1));
 
+                    // FIXME Might be better/more efficient to do this to Ae_sc
+                    // directly.
+                    if (!bc0.empty())
+                    {
+                        for (int i = 0; i < num_dofs11_0; ++i)
+                        {
+                            for (int k = 0; k < bs11_0; ++k)
+                            {
+                                if (bc0[bs11_0 * dofs0[i] + k])
+                                {
+                                    // Zero row bs0 * i + k
+                                    const int row = bs11_0 * i + k;
+                                    xt::view(Ae_sc_f_ij, row, xt::all()) = 0.0;
+                                }
+                            }
+                        }
+                    }
+
+                    if (!bc1.empty())
+                    {
+                        for (int j = 0; j < num_dofs11_1; ++j)
+                        {
+                            for (int k = 0; k < bs11_1; ++k)
+                            {
+                                if (bc1[bs11_1 * dofs1[j] + k])
+                                {
+                                    // Zero column bs1 * j + k
+                                    const int col = bs11_1 * j + k;
+                                    xt::view(Ae_sc_f_ij, xt::all(), col) = 0.0;
+                                }
+                            }
+                        }
+                    }
+
                     // NOTE dofs0.size() is same as num_dofs11_0 etc.
                     mat_set(dofs0.size(), dofs0.data(),
                             dofs1.size(), dofs1.data(),

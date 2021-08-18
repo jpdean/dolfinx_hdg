@@ -1,9 +1,11 @@
-from dolfinx import UnitSquareMesh, FunctionSpace
+from dolfinx import UnitSquareMesh, FunctionSpace, Function, DirichletBC
 from mpi4py import MPI
 from ufl import (TrialFunction, TestFunction, inner, dx, ds, FacetNormal,
                  grad, dot)
 from dolfinx_hdg.assemble import assemble_matrix
 import numpy as np
+from dolfinx.fem import locate_dofs_topological
+from dolfinx.mesh import locate_entities_boundary
 
 np.set_printoptions(linewidth=200)
 
@@ -33,7 +35,15 @@ a11 = gamma * inner(ubar, vbar) * dx
 a = [[a00, a01],
      [a10, a11]]
 
-A = assemble_matrix(a)
+# Boundary conditions
+facets = locate_entities_boundary(mesh, 1,
+                                  lambda x: np.logical_or(np.logical_or(np.isclose(x[0], 0.0), np.isclose(x[0], 1.0)),
+                                                          np.logical_or(np.isclose(x[1], 0.0), np.isclose(x[1], 1.0))))
+ubar0 = Function(Vbar)
+dofs_bar = locate_dofs_topological(Vbar, 1, facets)
+bc_bar = DirichletBC(ubar0, dofs_bar)
+
+A = assemble_matrix(a, [bc_bar])
 A.assemble()
 
 # NOTE If incorrect, it could be due to not applying transformations.
