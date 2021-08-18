@@ -106,6 +106,62 @@ namespace dolfinx_hdg::fem::impl
                     }
                 }
             }
+            else
+            {
+                // If not a cell-cell exterior facet integral, we need to compute
+                // the facet matrix and put in correct place in "cell" matrix.
+                xt::xarray<double> Ae_f = xt::zeros<double>({num_dofs_0,
+                                                             num_dofs_1});
+                for (int i : a.integral_ids(
+                         dolfinx::fem::IntegralType::exterior_facet))
+                {
+                    // One codim must be zero to carry out an exterior_facet
+                    // integral
+                    assert(codim_0 == 0 || codim_1 == 0);
+                    if (i == -1)
+                    {
+                        const auto &kernel =
+                            a.kernel(dolfinx::fem::IntegralType::exterior_facet, i);
+                        kernel(Ae_f.data(), coeffs.row(cell).data(), constants.data(),
+                               coordinate_dofs.data(), &local_f,
+                               &perms[cell * cell_facets.size() + local_f]);
+                    }
+                }
+                for (int i : a.integral_ids(
+                         dolfinx::fem::IntegralType::cell))
+                {
+                    // Both codims must be 1 to carry out an cell integral here
+                    assert(codim_0 == 1 && codim_1 == 1);
+                    if (i == -1)
+                    {
+                        // FIXME Get facet coord dofs properly and check
+                        auto facet_x_dofs = mesh->topology().connectivity(tdim - 1, tdim - 2)->links(f);
+                        std::vector<double> fact_coordinate_dofs(3 * mesh->topology().connectivity(tdim - 1, tdim - 2)->num_links(0));
+                        for (std::size_t i = 0; i < facet_x_dofs.size(); ++i)
+                        {
+                            std::copy_n(xt::row(x_g, facet_x_dofs[i]).begin(), 3,
+                                        std::next(fact_coordinate_dofs.begin(), 3 * i));
+                        }
+                        const auto &kernel =
+                            a.kernel(dolfinx::fem::IntegralType::cell, i);
+                        kernel(Ae_f.data(), coeffs.row(cell).data(), constants.data(),
+                               fact_coordinate_dofs.data(), nullptr, nullptr);
+                    }
+                }
+                const int start_row = 
+                    codim_0 == 0 ? 0 : local_f * num_dofs_0;
+                const int end_row =
+                    codim_0 == 0 ? num_rows : start_row + num_dofs_0;
+                
+                const int start_col = 
+                    codim_1 == 0 ? 0 : local_f * num_dofs_1;
+                const int end_col =
+                    codim_1 == 0 ? num_cols : start_col + num_dofs_1;
+                
+                xt::view(Ae,
+                         xt::range(start_row, end_row),
+                         xt::range(start_col, end_col)) = Ae_f;
+            }
         }
 
         return Ae;
