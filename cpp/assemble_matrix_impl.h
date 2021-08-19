@@ -38,6 +38,17 @@ namespace dolfinx_hdg::fem::impl
         assert(mesh);
         const int tdim = mesh->topology().dim();
 
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap0 =
+            a[1][1]->function_spaces().at(0)->dofmap()->list();
+        const int bs0 = a[1][1]->function_spaces().at(0)->dofmap()->bs();
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap1 =
+            a[1][1]->function_spaces().at(1)->dofmap()->list();
+        const int bs1 = a[1][1]->function_spaces().at(1)->dofmap()->bs();
+        const int num_dofs0 = dofmap0.links(0).size();
+        const int num_dofs1 = dofmap1.links(0).size();
+        const int ndim0 = bs0 * num_dofs0;
+        const int ndim1 = bs1 * num_dofs1;
+
         // TODO Is this needed?
         mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
         auto c_to_f = mesh->topology().connectivity(tdim, tdim - 1);
@@ -78,17 +89,6 @@ namespace dolfinx_hdg::fem::impl
 
                     const int f_i = cell_facets[local_f_i];
                     const int f_j = cell_facets[local_f_j];
-
-                    const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap0 =
-                        a[1][1]->function_spaces().at(0)->dofmap()->list();
-                    const int bs0 = a[1][1]->function_spaces().at(0)->dofmap()->bs();
-                    const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap1 =
-                        a[1][1]->function_spaces().at(1)->dofmap()->list();
-                    const int bs1 = a[1][1]->function_spaces().at(1)->dofmap()->bs();
-                    const int num_dofs0 = dofmap0.links(local_f_i).size();
-                    const int num_dofs1 = dofmap1.links(local_f_j).size();
-                    const int ndim0 = bs0 * num_dofs0;
-                    const int ndim1 = bs1 * num_dofs1;
 
                     auto dofs0 = dofmap0.links(f_i);
                     auto dofs1 = dofmap1.links(f_j);
