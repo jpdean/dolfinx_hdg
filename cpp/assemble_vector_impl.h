@@ -41,6 +41,8 @@ namespace dolfinx_hdg::fem::impl
             L[1]->function_spaces().at(0)->dofmap()->list();
         assert(dofmap);
         const int bs = L[1]->function_spaces().at(0)->dofmap()->bs();
+        const int num_dofs = dofmap.links(0).size();
+        const int ndim = bs * num_dofs;
 
         // TODO DOF Transformations
 
@@ -56,10 +58,42 @@ namespace dolfinx_hdg::fem::impl
         {
             auto cell_facets = c_to_f->links(c);
 
-            auto b = dolfinx_hdg::sc::assemble_cell_vector(*L[0], c, cell_facets,
-                                                           constants, coeffs);
-            auto bbar = dolfinx_hdg::sc::assemble_cell_vector(*L[1], c, cell_facets,
-                                                              constants, coeffs);
+            auto be0 = dolfinx_hdg::sc::assemble_cell_vector(*L[0], c, cell_facets,
+                                                             constants, coeffs);
+            auto Ae10 = dolfinx_hdg::sc::assemble_cell_matrix(
+                *a[1][0], c, cell_facets,
+                constants, coeffs);
+            auto Ae00 = dolfinx_hdg::sc::assemble_cell_matrix(
+                *a[0][0], c, cell_facets,
+                constants, coeffs);
+
+            // Call "be1" be_sc as this is the starting point for the
+            // statically condensed vector
+            auto be_sc = dolfinx_hdg::sc::assemble_cell_vector(*L[1], c, cell_facets,
+                                                               constants, coeffs);
+            // NOTE: xt::linalg::dot does matrix-vector and matrix matrix
+            // multiplication
+            be_sc -= xt::linalg::dot(Ae10, xt::linalg::solve(Ae00, be0));
+
+            for (int local_f = 0; local_f < cell_facets.size(); ++local_f)
+            {
+                const int f = cell_facets[local_f];
+
+                auto dofs = dofmap.links(f);
+
+                // Vector corresponding to dofs of facets f
+                // NOTE Have to cast to xt::xarray<double> (can't just use auto)
+                // otherwise it returns a view and Le_sc_f.data() gets the
+                // wrong values (the values) from the full Ae_sc array
+                xt::xarray<double> be_sc_f =
+                    xt::view(be_sc,
+                             xt::range(local_f * ndim,
+                                       local_f * ndim + ndim));
+
+                for (int i = 0; i < num_dofs; ++i)
+                    for (int k = 0; k < bs; ++k)
+                        b[bs * dofs[i] + k] += be_sc_f[bs * i + k];
+            }
         }
     }
 }
