@@ -1,4 +1,5 @@
 from dolfinx import UnitSquareMesh, FunctionSpace, Function, DirichletBC
+from dolfinx.fem.function import VectorFunctionSpace
 from mpi4py import MPI
 from ufl import (TrialFunction, TestFunction, inner, dx, ds, FacetNormal,
                  grad, dot)
@@ -6,6 +7,8 @@ from dolfinx_hdg.assemble import assemble_matrix, assemble_vector
 import numpy as np
 from dolfinx.fem import locate_dofs_topological
 from dolfinx.mesh import locate_entities_boundary
+from dolfinx.fem import set_bc
+from petsc4py import PETSc
 
 np.set_printoptions(linewidth=200)
 
@@ -54,4 +57,15 @@ f = [f0,
      f1]
 
 b = assemble_vector(f, a)
-print(b[:])
+# FIXME apply_lifting not implemented in my facet space branch, so must use homogeneous BC
+set_bc(b, [bc_bar])
+
+solver = PETSc.KSP().create(mesh.mpi_comm())
+solver.setOperators(A)
+solver.setType("preonly")
+solver.getPC().setType("lu")
+
+ubar = Function(Vbar)
+solver.solve(b, ubar.vector)
+
+print(ubar.vector[:])
