@@ -27,6 +27,8 @@ namespace dolfinx_hdg::fem::impl
     void assemble_vector(xtl::span<T> b,
                          const std::vector<std::shared_ptr<
                              const dolfinx::fem::Form<PetscScalar>>> &L,
+                         const std::vector<std::vector<std::shared_ptr<
+                             const dolfinx::fem::Form<T>>>> &a,
                          const xtl::span<const T> &constants,
                          const dolfinx::array2d<T> &coeffs)
     {
@@ -56,7 +58,8 @@ namespace dolfinx_hdg::fem::impl
 
             auto b = dolfinx_hdg::sc::assemble_cell_vector(*L[0], c, cell_facets,
                                                            constants, coeffs);
-            std::cout << b << "\n";
+            auto bbar = dolfinx_hdg::sc::assemble_cell_vector(*L[1], c, cell_facets,
+                                                              constants, coeffs);
         }
     }
 }

@@ -53,5 +53,5 @@ A.assemble()
 f = [f0,
      f1]
 
-b = assemble_vector(f)
+b = assemble_vector(f, a)
 print(b[:])
