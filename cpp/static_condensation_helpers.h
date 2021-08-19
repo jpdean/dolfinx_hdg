@@ -241,6 +241,7 @@ namespace dolfinx_hdg::sc
         return Ae;
     }
 
+    // FIXME Could I pass xbar as a coefficient to simplify this?
     template <typename T>
     xt::xarray<double> get_xbar_c(const xtl::span<T> xbar,
                                   const dolfinx::fem::Form<T> &L,
@@ -299,6 +300,14 @@ namespace dolfinx_hdg::sc
         auto c_to_f = mesh->topology().connectivity(tdim, tdim - 1);
         assert(c_to_f);
 
+        assert(L[0]->function_spaces().at(0));
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap =
+            L[0]->function_spaces().at(0)->dofmap()->list();
+        assert(dofmap);
+        const int bs = L[0]->function_spaces().at(0)->dofmap()->bs();
+        const int num_dofs = dofmap.links(0).size();
+        const int ndim = bs * num_dofs;
+
         for (int c = 0; c < c_to_f->num_nodes(); ++c)
         {
             auto cell_facets = c_to_f->links(c);
@@ -314,7 +323,12 @@ namespace dolfinx_hdg::sc
 
             auto xbar_c = get_xbar_c(xbar, *L[1], c, cell_facets);
 
-            std::cout << xbar_c << "\n";
+            auto x_c = xt::linalg::solve(Ae00, be0 - xt::linalg::dot(Ae01, xbar_c));
+
+            auto dofs = dofmap.links(c);
+            for (int i = 0; i < num_dofs; ++i)
+                for (int k = 0; k < bs; ++k)
+                    x[bs * dofs[i] + k] += x_c[bs * i + k];
         }
     }
 }
