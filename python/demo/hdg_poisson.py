@@ -10,10 +10,11 @@ from dolfinx.mesh import locate_entities_boundary
 from dolfinx.fem import set_bc
 from petsc4py import PETSc
 from dolfinx_hdg.sc import back_sub
+from dolfinx.io import XDMFFile
 
 np.set_printoptions(linewidth=200)
 
-n = 1
+n = 32
 mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 
 V = FunctionSpace(mesh, ("DG", 1))
@@ -53,7 +54,6 @@ bc_bar = DirichletBC(ubar0, dofs_bar)
 
 A = assemble_matrix(a, [bc_bar])
 A.assemble()
-# print(A[:, :])
 
 f = [f0,
      f1]
@@ -70,7 +70,9 @@ solver.getPC().setType("lu")
 ubar = Function(Vbar)
 solver.solve(b, ubar.vector)
 
-print(ubar.vector[:])
+u = Function(V)
+u.vector[:] = back_sub(ubar.vector, a, f)
 
-x = back_sub(ubar.vector, a, f)
-print(x[:])
+with XDMFFile(MPI.COMM_WORLD, "poisson.xdmf", "w") as file:
+    file.write_mesh(mesh)
+    file.write_function(u)
