@@ -22,6 +22,24 @@
 
 namespace dolfinx_hdg::sc
 {
+    std::vector<double> get_cell_coord_dofs(
+        std::shared_ptr<const dolfinx::mesh::Mesh> mesh,
+        const int cell);
+
+    std::vector<double> get_facet_coord_dofs(
+        std::shared_ptr<const dolfinx::mesh::Mesh> mesh,
+        const int f);
+
+    // template <typename T>
+    // xt::xarray<double> assemble_cell_vector(
+    //     const dolfinx::fem::Form<T> &L,
+    //     const int cell,
+    //     const tcb::span<const int> &cell_facets,
+    //     const xtl::span<const T> &constants,
+    //     const dolfinx::array2d<T> &coeffs)
+    // {
+    // }
+
     // NOTE This approach reuses code and makes for a simpler
     // implementation, but means looping over facets more that
     // once. All cell matrices could be computed in one go
@@ -44,17 +62,8 @@ namespace dolfinx_hdg::sc
         std::shared_ptr<const dolfinx::mesh::Mesh> mesh = a.mesh();
         assert(mesh);
         const int tdim = mesh->topology().dim();
-        const dolfinx::graph::AdjacencyList<std::int32_t> &x_dofmap =
-            mesh->geometry().dofmap();
-        const std::size_t num_dofs_g = x_dofmap.num_links(cell);
-        const xt::xtensor<double, 2> &x_g = mesh->geometry().x();
-        std::vector<double> coordinate_dofs(3 * num_dofs_g);
-        auto x_dofs = x_dofmap.links(cell);
-        for (std::size_t i = 0; i < x_dofs.size(); ++i)
-        {
-            std::copy_n(xt::row(x_g, x_dofs[i]).begin(), 3,
-                        std::next(coordinate_dofs.begin(), 3 * i));
-        }
+        std::vector<double> coordinate_dofs =
+            get_cell_coord_dofs(mesh, cell);
         // NOTE These are created outside, but check mesh isn't different
         // for each form!
         const std::vector<std::uint8_t> &perms =
@@ -141,14 +150,8 @@ namespace dolfinx_hdg::sc
                     assert(codim_0 == 1 && codim_1 == 1);
                     if (i == -1)
                     {
-                        // FIXME Get facet coord dofs properly and check
-                        auto facet_x_dofs = mesh->topology().connectivity(tdim - 1, tdim - 2)->links(f);
-                        std::vector<double> fact_coordinate_dofs(3 * mesh->topology().connectivity(tdim - 1, tdim - 2)->num_links(0));
-                        for (std::size_t i = 0; i < facet_x_dofs.size(); ++i)
-                        {
-                            std::copy_n(xt::row(x_g, facet_x_dofs[i]).begin(), 3,
-                                        std::next(fact_coordinate_dofs.begin(), 3 * i));
-                        }
+                        std::vector<double> fact_coordinate_dofs =
+                            get_facet_coord_dofs(mesh, f);
                         const auto &kernel =
                             a.kernel(dolfinx::fem::IntegralType::cell, i);
                         kernel(Ae_f.data(), coeffs.row(cell).data(), constants.data(),

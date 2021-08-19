@@ -18,7 +18,8 @@ add_library(${PROJECT_NAME}
         petsc.h petsc.cpp
         assemble_matrix_impl.h
         assemble_vector_impl.h
-        static_condensation_helpers.h)
+        static_condensation_helpers.h
+        static_condensation_helpers.cpp)
 
 # state that anybody linking to us needs to include the current source dir
 # to find hello.h, while we don't.
