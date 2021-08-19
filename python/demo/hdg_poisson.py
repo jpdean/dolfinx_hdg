@@ -36,8 +36,13 @@ a00 = inner(grad(u), grad(v)) * dx - \
 a10 = inner(dot(grad(u), n) - gamma * u, vbar) * ds
 a01 = inner(dot(grad(v), n) - gamma * v, ubar) * ds
 a11 = gamma * inner(ubar, vbar) * dx
+
+x = SpatialCoordinate(mesh)
+u_e = sin(pi * x[0]) * sin(pi * x[1])
+f = - div(grad(u_e))
+
 # FIXME Constant doesn't work in my facet space branch
-f0 = inner(1, v) * dx
+f0 = inner(f, v) * dx
 f1 = inner(1e-16, vbar) * dx
 
 a = [[a00, a01],
