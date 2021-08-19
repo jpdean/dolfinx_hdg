@@ -17,6 +17,7 @@ n = 1
 mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 
 V = FunctionSpace(mesh, ("DG", 1))
+# TODO (mesh, codimension=1)
 Vbar = FunctionSpace(mesh, ("DG", 1), codimension=1)
 
 u = TrialFunction(V)
@@ -72,3 +73,4 @@ solver.solve(b, ubar.vector)
 print(ubar.vector[:])
 
 x = back_sub(ubar.vector, a, f)
+print(x[:])

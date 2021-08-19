@@ -242,19 +242,79 @@ namespace dolfinx_hdg::sc
     }
 
     template <typename T>
+    xt::xarray<double> get_xbar_c(const xtl::span<T> xbar,
+                                  const dolfinx::fem::Form<T> &L,
+                                  const int cell,
+                                  const tcb::span<const int> &cell_facets)
+    {
+        // NOTE L is the facet form
+        assert(L.function_spaces().at(0));
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap =
+            L.function_spaces().at(0)->dofmap()->list();
+        assert(dofmap);
+        const int bs = L.function_spaces().at(0)->dofmap()->bs();
+        const int num_dofs = dofmap.links(0).size();
+        const int ndim = bs * num_dofs;
+        const int num_facets = cell_facets.size();
+
+        xt::xarray<double> xbar_c = xt::zeros<double>({ndim * num_facets});
+
+        for (int local_f = 0; local_f < cell_facets.size(); ++local_f)
+        {
+            const int f = cell_facets[local_f];
+
+            auto dofs = dofmap.links(f);
+
+            for (int i = 0; i < num_dofs; ++i)
+            {
+                for (int k = 0; k < bs; ++k)
+                {
+                    xbar_c[ndim * local_f + bs * i + k] = xbar[bs * dofs[i] + k];
+                }
+            }
+        }
+        return xbar_c;
+    }
+
+    template <typename T>
     void back_sub(xtl::span<T> x, const xtl::span<T> xbar,
-                         const std::vector<std::vector<std::shared_ptr<
-                             const dolfinx::fem::Form<T>>>> &a,
-                         const std::vector<std::shared_ptr<
-                             const dolfinx::fem::Form<PetscScalar>>> &L)
+                  const std::vector<std::vector<std::shared_ptr<
+                      const dolfinx::fem::Form<T>>>> &a,
+                  const std::vector<std::shared_ptr<
+                      const dolfinx::fem::Form<T>>> &L)
     {
         // FIXME Think about the best way to do this. Currently, this only
         // packs constants / coefficients for the facet space form and these
         // are accessed incorrectly later
-        const std::vector<T> constants =
-            dolfinx::fem::pack_constants(*L[1]);
+        const xtl::span<const T> constants =
+            tcb::make_span(dolfinx::fem::pack_constants(*L[1]));
         const dolfinx::array2d<T> coeffs =
             dolfinx::fem::pack_coefficients(*L[1]);
-        std::cout << "Hello from back_sub!\n";
+
+        std::shared_ptr<const dolfinx::mesh::Mesh> mesh = L[1]->mesh();
+        assert(mesh);
+        const int tdim = mesh->topology().dim();
+        // TODO Is this needed?
+        mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
+        auto c_to_f = mesh->topology().connectivity(tdim, tdim - 1);
+        assert(c_to_f);
+
+        for (int c = 0; c < c_to_f->num_nodes(); ++c)
+        {
+            auto cell_facets = c_to_f->links(c);
+
+            auto be0 = dolfinx_hdg::sc::assemble_cell_vector(*L[0], c, cell_facets,
+                                                             constants, coeffs);
+            auto Ae00 = dolfinx_hdg::sc::assemble_cell_matrix(
+                *a[0][0], c, cell_facets,
+                constants, coeffs);
+            auto Ae01 = dolfinx_hdg::sc::assemble_cell_matrix(
+                *a[0][1], c, cell_facets,
+                constants, coeffs);
+
+            auto xbar_c = get_xbar_c(xbar, *L[1], c, cell_facets);
+
+            std::cout << xbar_c << "\n";
+        }
     }
 }
