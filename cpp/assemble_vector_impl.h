@@ -19,6 +19,7 @@
 #include <xtensor/xbuilder.hpp>
 #include <xtensor/xtensor.hpp>
 #include <iostream>
+#include "static_condensation_helpers.h"
 
 namespace dolfinx_hdg::fem::impl
 {
@@ -29,6 +30,33 @@ namespace dolfinx_hdg::fem::impl
                          const xtl::span<const T> &constants,
                          const dolfinx::array2d<T> &coeffs)
     {
-        std::cout << "Hello from dolfinx_hdg::fem::impl::assemble_vector\n";
+        std::shared_ptr<const dolfinx::mesh::Mesh> mesh = L[1]->mesh();
+        assert(mesh);
+        const int tdim = mesh->topology().dim();
+
+        assert(L[1]->function_spaces().at(0));
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap =
+            L[1]->function_spaces().at(0)->dofmap()->list();
+        assert(dofmap);
+        const int bs = L[1]->function_spaces().at(0)->dofmap()->bs();
+
+        // TODO DOF Transformations
+
+        // TODO Is this needed?
+        mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
+        auto c_to_f = mesh->topology().connectivity(tdim, tdim - 1);
+        assert(c_to_f);
+        mesh->topology_mutable().create_entity_permutations();
+        const std::vector<std::uint8_t> &perms =
+            mesh->topology().get_facet_permutations();
+
+        for (int c = 0; c < c_to_f->num_nodes(); ++c)
+        {
+            auto cell_facets = c_to_f->links(c);
+
+            auto b = dolfinx_hdg::sc::assemble_cell_vector(*L[0], c, cell_facets,
+                                                           constants, coeffs);
+            std::cout << b << "\n";
+        }
     }
 }

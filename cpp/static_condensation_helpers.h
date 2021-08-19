@@ -30,15 +30,59 @@ namespace dolfinx_hdg::sc
         std::shared_ptr<const dolfinx::mesh::Mesh> mesh,
         const int f);
 
-    // template <typename T>
-    // xt::xarray<double> assemble_cell_vector(
-    //     const dolfinx::fem::Form<T> &L,
-    //     const int cell,
-    //     const tcb::span<const int> &cell_facets,
-    //     const xtl::span<const T> &constants,
-    //     const dolfinx::array2d<T> &coeffs)
-    // {
-    // }
+    template <typename T>
+    xt::xarray<double> assemble_cell_vector(
+        const dolfinx::fem::Form<T> &L,
+        const int cell,
+        const tcb::span<const int> &cell_facets,
+        const xtl::span<const T> &constants,
+        const dolfinx::array2d<T> &coeffs)
+    {
+        std::shared_ptr<const dolfinx::mesh::Mesh> mesh = L.mesh();
+        assert(mesh);
+        const int tdim = mesh->topology().dim();
+        std::vector<double> coordinate_dofs =
+            get_cell_coord_dofs(mesh, cell);
+        // NOTE These are created outside, but check mesh isn't different
+        // for each form!
+        const std::vector<std::uint8_t> &perms =
+            mesh->topology().get_facet_permutations();
+
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap =
+            L.function_spaces().at(0)->dofmap()->list();
+        const int bs = L.function_spaces().at(0)->dofmap()->bs();
+        const int num_dofs = bs * dofmap.links(0).size();
+        const int codim = L.function_spaces().at(0)->codimension();
+
+        // TODO Check codim == 0 or 1
+        assert(codim == 0 || codim == 1);
+        const int num_rows =
+            codim == 0 ? num_dofs : cell_facets.size() * num_dofs;
+        xt::xarray<double> Le = xt::zeros<double>({num_rows});
+
+        if (codim == 0)
+        {
+            // TODO Add facet integrals!
+            for (int i : L.integral_ids(dolfinx::fem::IntegralType::cell))
+            {
+                if (i == -1)
+                {
+                    const auto &kernel =
+                        L.kernel(dolfinx::fem::IntegralType::cell, i);
+                    kernel(Le.data(), coeffs.row(cell).data(), constants.data(),
+                           coordinate_dofs.data(), nullptr, nullptr);
+                }
+            }
+        }
+        else
+        {
+            for (int local_f = 0; local_f < cell_facets.size(); ++local_f)
+            {
+                const int f = cell_facets[local_f];
+            }
+        }
+        return Le;
+    }
 
     // NOTE This approach reuses code and makes for a simpler
     // implementation, but means looping over facets more that
