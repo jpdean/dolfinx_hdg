@@ -1,5 +1,4 @@
 from dolfinx import UnitSquareMesh, FunctionSpace, Function, DirichletBC
-from dolfinx.fem.function import VectorFunctionSpace
 from mpi4py import MPI
 from ufl import (TrialFunction, TestFunction, inner, dx, ds, FacetNormal,
                  grad, dot)
