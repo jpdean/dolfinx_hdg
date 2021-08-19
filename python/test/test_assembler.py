@@ -2,13 +2,13 @@ from dolfinx import UnitSquareMesh, FunctionSpace, Function, DirichletBC
 from mpi4py import MPI
 from ufl import (TrialFunction, TestFunction, inner, dx, ds, FacetNormal,
                  grad, dot)
-from dolfinx_hdg.assemble import assemble_matrix
+from dolfinx_hdg.assemble import assemble_matrix, assemble_vector
 import numpy as np
 from dolfinx.fem import locate_dofs_topological
 from dolfinx.mesh import locate_entities_boundary
 
 
-def test_assembly():
+def test_assembler():
     n = 1
     mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 
@@ -33,7 +33,7 @@ def test_assembly():
     a11 = gamma * inner(ubar, vbar) * dx
 
     a = [[a00, a01],
-        [a10, a11]]
+         [a10, a11]]
 
     A = assemble_matrix(a)
     A.assemble()
@@ -62,8 +62,8 @@ def test_assembly():
 
     # Boundary conditions
     facets = locate_entities_boundary(mesh, 1,
-                                    lambda x: np.logical_or(np.logical_or(np.isclose(x[0], 0.0), np.isclose(x[0], 1.0)),
-                                                            np.logical_or(np.isclose(x[1], 0.0), np.isclose(x[1], 1.0))))
+                                      lambda x: np.logical_or(np.logical_or(np.isclose(x[0], 0.0), np.isclose(x[0], 1.0)),
+                                                              np.logical_or(np.isclose(x[1], 0.0), np.isclose(x[1], 1.0))))
     ubar0 = Function(Vbar)
     dofs_bar = locate_dofs_topological(Vbar, 1, facets)
     bc_bar = DirichletBC(ubar0, dofs_bar)
@@ -83,3 +83,17 @@ def test_assembly():
                         [0, 0, 0,          0,          0, 0, 0, 0, 0, 1]])
 
     assert(np.allclose(A[:, :], A_exact))
+
+    f0 = inner(1, v) * dx
+    f1 = inner(1e-16, vbar) * dx
+
+    f = [f0,
+         f1]
+
+    b = assemble_vector(f, a)
+
+    # TODO Check this
+    b_exact = [0.07102385, 0.08333333, 0.19128563, 0.19128563, 0.07102385,
+               0.08333333, 0.08333333, 0.07102385, 0.08333333, 0.07102385]
+
+    assert(np.allclose(b[:], b_exact))
