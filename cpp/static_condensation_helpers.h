@@ -79,6 +79,26 @@ namespace dolfinx_hdg::sc
             for (int local_f = 0; local_f < cell_facets.size(); ++local_f)
             {
                 const int f = cell_facets[local_f];
+                xt::xarray<double> Le_f = xt::zeros<double>({num_dofs});
+
+                for (int i : L.integral_ids(
+                         dolfinx::fem::IntegralType::cell))
+                {
+                    if (i == -1)
+                    {
+                        std::vector<double> fact_coordinate_dofs =
+                            get_facet_coord_dofs(mesh, f);
+                        const auto &kernel =
+                            L.kernel(dolfinx::fem::IntegralType::cell, i);
+                        kernel(Le_f.data(), coeffs.row(cell).data(), constants.data(),
+                               fact_coordinate_dofs.data(), nullptr, nullptr);
+                    }
+                }
+
+                const int start_row = local_f * num_dofs;
+                const int end_row = start_row + num_dofs;
+
+                xt::view(Le, xt::range(start_row, end_row)) = Le_f;
             }
         }
         return Le;
