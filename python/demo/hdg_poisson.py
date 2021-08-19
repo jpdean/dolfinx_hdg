@@ -9,6 +9,7 @@ from dolfinx.fem import locate_dofs_topological
 from dolfinx.mesh import locate_entities_boundary
 from dolfinx.fem import set_bc
 from petsc4py import PETSc
+from dolfinx_hdg.sc import back_sub
 
 np.set_printoptions(linewidth=200)
 
@@ -69,3 +70,5 @@ ubar = Function(Vbar)
 solver.solve(b, ubar.vector)
 
 print(ubar.vector[:])
+
+x = back_sub(ubar.vector, a, f)

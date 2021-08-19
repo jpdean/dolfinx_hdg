@@ -240,4 +240,21 @@ namespace dolfinx_hdg::sc
 
         return Ae;
     }
+
+    template <typename T>
+    void back_sub(xtl::span<T> x, const xtl::span<T> xbar,
+                         const std::vector<std::vector<std::shared_ptr<
+                             const dolfinx::fem::Form<T>>>> &a,
+                         const std::vector<std::shared_ptr<
+                             const dolfinx::fem::Form<PetscScalar>>> &L)
+    {
+        // FIXME Think about the best way to do this. Currently, this only
+        // packs constants / coefficients for the facet space form and these
+        // are accessed incorrectly later
+        const std::vector<T> constants =
+            dolfinx::fem::pack_constants(*L[1]);
+        const dolfinx::array2d<T> coeffs =
+            dolfinx::fem::pack_coefficients(*L[1]);
+        std::cout << "Hello from back_sub!\n";
+    }
 }
