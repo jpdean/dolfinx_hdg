@@ -252,7 +252,6 @@ namespace dolfinx_hdg::sc
         assert(L.function_spaces().at(0));
         const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap =
             L.function_spaces().at(0)->dofmap()->list();
-        assert(dofmap);
         const int bs = L.function_spaces().at(0)->dofmap()->bs();
         const int num_dofs = dofmap.links(0).size();
         const int ndim = bs * num_dofs;
@@ -303,7 +302,6 @@ namespace dolfinx_hdg::sc
         assert(L[0]->function_spaces().at(0));
         const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap =
             L[0]->function_spaces().at(0)->dofmap()->list();
-        assert(dofmap);
         const int bs = L[0]->function_spaces().at(0)->dofmap()->bs();
         const int num_dofs = dofmap.links(0).size();
         const int ndim = bs * num_dofs;

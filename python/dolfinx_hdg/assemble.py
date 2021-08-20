@@ -35,26 +35,23 @@ def assemble_vector(L: typing.List[
 
 # NOTE This assumes the facet space is in the a[1][1] position
 @functools.singledispatch
-def assemble_matrix(a: typing.List[typing.List[
-        typing.Union[Form, dolfinx.cpp.fem.Form]]],
+def assemble_matrix(a: typing.Union[Form, dolfinx.cpp.fem.Form],
         bcs: typing.List[DirichletBC] = [],
         diagonal: float = 1.0) -> PETSc.Mat:
     """Assemble bilinear form into a matrix. The returned matrix is not
     finalised, i.e. ghost values are not accumulated.
 
     """
-    # FIXME Check a is 2x2
     # Need to call dolfinx_hdg.create_matrix as the condensed system
     # has a different sparsity pattern to what dolfinx.create_matrix
     # would provide
-    A = dolfinx_hdg.cpp.create_matrix(_create_cpp_form(a[1][1]))
+    A = dolfinx_hdg.cpp.create_matrix(_create_cpp_form(a))
     return assemble_matrix(A, a, bcs, diagonal)
 
 
 @assemble_matrix.register(PETSc.Mat)
 def _(A: PETSc.Mat,
-      a: typing.List[typing.List[
-                     typing.Union[Form, dolfinx.cpp.fem.Form]]],
+      a: typing.Union[Form, dolfinx.cpp.fem.Form],
       bcs: typing.List[DirichletBC] = [],
       diagonal: float = 1.0) -> PETSc.Mat:
     """Assemble bilinear form into a matrix. The returned matrix is not
@@ -64,9 +61,9 @@ def _(A: PETSc.Mat,
     _a = _create_cpp_form(a)
     dolfinx_hdg.cpp.assemble_matrix_petsc(A, _a, bcs)
     # TODO When will this not be true? Mixed facet HDG terms?
-    if _a[1][1].function_spaces[0].id == _a[1][1].function_spaces[1].id:
+    if _a.function_spaces[0].id == _a.function_spaces[1].id:
         A.assemblyBegin(PETSc.Mat.AssemblyType.FLUSH)
         A.assemblyEnd(PETSc.Mat.AssemblyType.FLUSH)
-        dolfinx.cpp.fem.insert_diagonal(A, _a[1][1].function_spaces[0],
+        dolfinx.cpp.fem.insert_diagonal(A, _a.function_spaces[0],
                                         bcs, diagonal)
     return A

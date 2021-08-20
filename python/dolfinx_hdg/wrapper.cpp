@@ -28,8 +28,7 @@ PYBIND11_MODULE(cpp, m)
 
     m.def("assemble_matrix_petsc",
           [](Mat A,
-             const std::vector<std::vector<std::shared_ptr<
-                 const dolfinx::fem::Form<PetscScalar>>>> &a,
+             const dolfinx::fem::Form<PetscScalar> &a,
              const std::vector<std::shared_ptr<
                  const dolfinx::fem::DirichletBC<PetscScalar>>> &bcs)
           {

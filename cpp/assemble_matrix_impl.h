@@ -19,7 +19,6 @@
 #include <xtensor/xarray.hpp>
 #include <xtensor/xio.hpp> // To cout xtensor arrays
 #include <xtensor-blas/xlinalg.hpp>
-#include "static_condensation_helpers.h"
 
 namespace dolfinx_hdg::fem::impl
 {
@@ -27,23 +26,22 @@ namespace dolfinx_hdg::fem::impl
     void assemble_matrix(
         const std::function<int(std::int32_t, const std::int32_t *, std::int32_t,
                                 const std::int32_t *, const T *)> &mat_set,
-        const std::vector<std::vector<std::shared_ptr<
-            const dolfinx::fem::Form<T>>>> &a,
+        const dolfinx::fem::Form<T> &a,
         const xtl::span<const T> &constants,
         const dolfinx::array2d<T> &coeffs, const std::vector<bool> &bc0,
         const std::vector<bool> &bc1)
     {
         // FIXME Vector elements (i.e. block size \neq 1) might break some of this
-        std::shared_ptr<const dolfinx::mesh::Mesh> mesh = a[0][0]->mesh();
+        std::shared_ptr<const dolfinx::mesh::Mesh> mesh = a.mesh();
         assert(mesh);
         const int tdim = mesh->topology().dim();
 
         const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap0 =
-            a[1][1]->function_spaces().at(0)->dofmap()->list();
-        const int bs0 = a[1][1]->function_spaces().at(0)->dofmap()->bs();
+            a.function_spaces().at(0)->dofmap()->list();
+        const int bs0 = a.function_spaces().at(0)->dofmap()->bs();
         const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap1 =
-            a[1][1]->function_spaces().at(1)->dofmap()->list();
-        const int bs1 = a[1][1]->function_spaces().at(1)->dofmap()->bs();
+            a.function_spaces().at(1)->dofmap()->list();
+        const int bs1 = a.function_spaces().at(1)->dofmap()->bs();
         const int num_dofs0 = dofmap0.links(0).size();
         const int num_dofs1 = dofmap1.links(0).size();
         const int ndim0 = bs0 * num_dofs0;
@@ -60,23 +58,9 @@ namespace dolfinx_hdg::fem::impl
         for (int c = 0; c < c_to_f->num_nodes(); ++c)
         {
             auto cell_facets = c_to_f->links(c);
-            auto Ae00 = dolfinx_hdg::sc::assemble_cell_matrix(
-                *a[0][0], c, cell_facets,
-                constants, coeffs);
-            auto Ae01 = dolfinx_hdg::sc::assemble_cell_matrix(
-                *a[0][1], c, cell_facets,
-                constants, coeffs);
-            auto Ae10 = dolfinx_hdg::sc::assemble_cell_matrix(
-                *a[1][0], c, cell_facets,
-                constants, coeffs);
-            // Call "Ae_11" Ae_sc as this is the starting point for the
-            // statically condensed system
-            auto Ae_sc = dolfinx_hdg::sc::assemble_cell_matrix(
-                *a[1][1], c, cell_facets,
-                constants, coeffs);
 
-            // NOTE: xt::linalg::dot does matrix-vector and matrix matrix multiplication
-            Ae_sc -= xt::linalg::dot(Ae10, xt::linalg::solve(Ae00, Ae01));
+            // TODO Do this properly
+            xt::xarray<double> Ae_sc = xt::zeros<double>({6, 6});
 
             // Double loop over cell facets to assemble
             // FIXME Is there a better way?
