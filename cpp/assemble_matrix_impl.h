@@ -69,6 +69,7 @@ namespace dolfinx_hdg::fem::impl
         for (int c = 0; c < c_to_f->num_nodes(); ++c)
         {
             auto cell_facets = c_to_f->links(c);
+            const int num_facets = cell_facets.size();
 
             // FIXME Check
             auto x_dofs = x_dofmap.links(c);
@@ -79,7 +80,8 @@ namespace dolfinx_hdg::fem::impl
             }
 
             // TODO Do this properly
-            xt::xarray<double> Ae_sc = xt::zeros<double>({6, 6});
+            xt::xarray<double> Ae_sc = xt::zeros<double>({ndim0 * num_facets,
+                                                          ndim1 * num_facets});
 
             kernel(Ae_sc.data(), coeffs.row(c).data(), constants.data(),
                    coordinate_dofs.data(), nullptr, nullptr);
