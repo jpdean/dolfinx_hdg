@@ -24,6 +24,12 @@ V = FunctionSpace(mesh, ("DG", 1))
 # TODO (mesh, codimension=1)
 Vbar = FunctionSpace(mesh, ("DG", 1), codimension=1)
 
+V_ele_space_dim = V.dolfin_element().space_dimension()
+Vbar_ele_space_dim = Vbar.dolfin_element().space_dimension()
+
+# TODO Get this properly
+num_facets = 3
+
 u = TrialFunction(V)
 v = TestFunction(V)
 ubar = TrialFunction(Vbar)
@@ -65,8 +71,10 @@ c_signature = numba.types.void(
 @numba.cfunc(c_signature, nopython=True)
 def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
                                 permutation=ffi.NULL):
-    A = numba.carray(A_, (6, 6), dtype=PETSc.ScalarType)
-    A += np.ones((6, 6))
+    A = numba.carray(A_, (num_facets * Vbar_ele_space_dim,
+                          num_facets * Vbar_ele_space_dim),
+            dtype=PETSc.ScalarType)
+    A += np.ones_like(A)
 
 
 integrals = {dolfinx.fem.IntegralType.cell:
