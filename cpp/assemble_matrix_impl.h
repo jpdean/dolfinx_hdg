@@ -36,6 +36,13 @@ namespace dolfinx_hdg::fem::impl
         assert(mesh);
         const int tdim = mesh->topology().dim();
 
+        // FIXME Check
+        const dolfinx::graph::AdjacencyList<std::int32_t> &x_dofmap =
+            mesh->geometry().dofmap();
+        const std::size_t num_dofs_g = x_dofmap.num_links(cell);
+        const xt::xtensor<double, 2> &x_g = mesh->geometry().x();
+        std::vector<double> coordinate_dofs(3 * num_dofs_g);
+
         const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap0 =
             a.function_spaces().at(0)->dofmap()->list();
         const int bs0 = a.function_spaces().at(0)->dofmap()->bs();
@@ -55,12 +62,27 @@ namespace dolfinx_hdg::fem::impl
         const std::vector<std::uint8_t> &perms =
             mesh->topology().get_facet_permutations();
 
+        // FIXME Do this properly
+        const auto &kernel =
+            a.kernel(dolfinx::fem::IntegralType::cell, -1);
+
         for (int c = 0; c < c_to_f->num_nodes(); ++c)
         {
             auto cell_facets = c_to_f->links(c);
 
+            // FIXME Check
+            auto x_dofs = x_dofmap.links(c);
+            for (std::size_t i = 0; i < x_dofs.size(); ++i)
+            {
+                std::copy_n(xt::row(x_g, x_dofs[i]).begin(), 3,
+                            std::next(coordinate_dofs.begin(), 3 * i));
+            }
+
             // TODO Do this properly
             xt::xarray<double> Ae_sc = xt::zeros<double>({6, 6});
+
+            kernel(Ae_sc.data(), coeffs.row(c).data(), constants.data(),
+                   coordinate_dofs.data(), nullptr, nullptr);
 
             // Double loop over cell facets to assemble
             // FIXME Is there a better way?

@@ -65,8 +65,8 @@ c_signature = numba.types.void(
 @numba.cfunc(c_signature, nopython=True)
 def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
                                 permutation=ffi.NULL):
-    A = numba.carray(A_, (2, 2), dtype=PETSc.ScalarType)
-    A += np.ones((2, 2))
+    A = numba.carray(A_, (6, 6), dtype=PETSc.ScalarType)
+    A += np.ones((6, 6))
 
 
 integrals = {dolfinx.fem.IntegralType.cell:
