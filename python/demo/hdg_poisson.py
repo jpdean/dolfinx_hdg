@@ -1,7 +1,8 @@
 from dolfinx import UnitSquareMesh, FunctionSpace, Function, DirichletBC
+from dolfinx.fem import assemble_scalar
 from mpi4py import MPI
 from ufl import (TrialFunction, TestFunction, inner, dx, ds, FacetNormal,
-                 grad, dot)
+                 grad, dot, SpatialCoordinate, sin, pi, div, CellDiameter)
 from dolfinx_hdg.assemble import assemble_matrix, assemble_vector
 import numpy as np
 from dolfinx.fem import locate_dofs_topological
@@ -25,7 +26,10 @@ v = TestFunction(V)
 ubar = TrialFunction(Vbar)
 vbar = TestFunction(Vbar)
 
-h = 1 / n  # TODO Use CellDiameter
+# TODO Use CellDiameter as this will cause recompile.
+# FIXME CellDiameter currently not supported by my facet space
+# branch
+h = 1 / n
 gamma = 10.0 / h  # TODO Add dependence on order of polynomials
 n = FacetNormal(mesh)
 
@@ -76,6 +80,11 @@ solver.solve(b, ubar.vector)
 
 u = Function(V)
 u.vector[:] = back_sub(ubar.vector, a, f)
+
+e = u - u_e
+e_L2 = np.sqrt(mesh.mpi_comm().allreduce(
+    assemble_scalar(inner(e, e) * dx), op=MPI.SUM))
+print(f"L2-norm of error = {e_L2}")
 
 with XDMFFile(MPI.COMM_WORLD, "poisson.xdmf", "w") as file:
     file.write_mesh(mesh)
