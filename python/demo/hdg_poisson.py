@@ -58,6 +58,17 @@ f = - div(grad(u_e))
 f0 = inner(f, v) * dx
 f1 = inner(1e-16, vbar) * dx
 
+# JIT compile individual blocks tabulation kernels
+ufc_form00, _, _ = dolfinx.jit.ffcx_jit(mesh.mpi_comm(), a00)
+kernel00_cell = ufc_form00.integrals(0)[0].tabulate_tensor
+kernel00_facet = ufc_form00.integrals(1)[0].tabulate_tensor
+
+ufc_form10, _, _ = dolfinx.jit.ffcx_jit(mesh.mpi_comm(), a10)
+kernel10 = ufc_form10.integrals(1)[0].tabulate_tensor
+
+ufc_form11, _, _ = dolfinx.jit.ffcx_jit(mesh.mpi_comm(), a11)
+kernel11 = ufc_form11.integrals(0)[0].tabulate_tensor
+
 ffi = cffi.FFI()
 c_signature = numba.types.void(
     numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
@@ -74,6 +85,10 @@ def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
     A = numba.carray(A_, (num_facets * Vbar_ele_space_dim,
                           num_facets * Vbar_ele_space_dim),
             dtype=PETSc.ScalarType)
+    
+    A00 = np.zeros((V_ele_space_dim, V_ele_space_dim), dtype=PETSc.ScalarType)
+    kernel00_cell(ffi.from_buffer(A00), w_, c_, coords_, entity_local_index, permutation)
+
     A += np.ones_like(A)
 
 
