@@ -78,6 +78,15 @@ c_signature = numba.types.void(
     numba.types.CPointer(numba.types.int32),
     numba.types.CPointer(numba.types.uint8))
 
+@numba.jit(nopython=True)
+def facet_to_cell(A_f, f):
+    A = np.zeros((num_facets * Vbar_ele_space_dim,
+                  V_ele_space_dim), dtype=PETSc.ScalarType)
+    start_col = f * Vbar_ele_space_dim
+    end_col = f * Vbar_ele_space_dim + Vbar_ele_space_dim
+    A[:, start_col:end_col] += A_f[:, :]
+    return A
+
 @numba.cfunc(c_signature, nopython=True)
 def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
                                 facet_permutations):
@@ -89,6 +98,8 @@ def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
     # FIXME How do I pass a null pointer for the last two arguments here?
     kernel00_cell(ffi.from_buffer(A00), w_, c_, coords_, entity_local_index,
                   facet_permutations)
+    A10 = np.zeros((num_facets * Vbar_ele_space_dim,
+                    V_ele_space_dim), dtype=PETSc.ScalarType)
 
     # FIXME Is there a neater way to do this?
     facet = np.zeros((1), dtype=np.int32)
@@ -104,6 +115,7 @@ def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
         kernel10(ffi.from_buffer(A10_f), w_, c_, coords_,
                 ffi.from_buffer(facet), 
                 ffi.from_buffer(facet_permutation))
+        A10 += facet_to_cell(A10_f, i)
         
     A += np.ones_like(A)
 
