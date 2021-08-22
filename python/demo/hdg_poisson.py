@@ -78,6 +78,23 @@ c_signature = numba.types.void(
     numba.types.CPointer(numba.types.int32),
     numba.types.CPointer(numba.types.uint8))
 
+
+@numba.jit(nopython=True)
+def get_facet_coords(coords_, local_f):
+    # FIXME HACK
+    coords = numba.carray(coords_, (3 * 3),
+                          dtype=np.double)
+    facet_coords = np.zeros((2 * 3))
+    if local_f == 0:
+        facet_coords[:] = coords[3:]
+    elif local_f == 1:
+        facet_coords[0:2] = coords[0:2]
+        facet_coords[3:] = coords[-3:]
+    else:
+        facet_coords[:] = coords[0:6]
+    return facet_coords
+
+
 @numba.jit(nopython=True)
 def map_facet_cell(A_f, f):
     A = np.zeros((num_facets * Vbar_ele_space_dim,
