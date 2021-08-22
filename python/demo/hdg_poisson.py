@@ -88,13 +88,9 @@ def map_facet_cell(A_f, f):
     return A
 
 
-@numba.cfunc(c_signature, nopython=True)
-def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
-                                facet_permutations):
-    A = numba.carray(A_, (num_facets * Vbar_ele_space_dim,
-                          num_facets * Vbar_ele_space_dim),
-            dtype=PETSc.ScalarType)
-    
+@numba.jit(nopython=True)
+def compute_A00_A10(w_, c_, coords_, entity_local_index,
+                    facet_permutations):
     A00 = np.zeros((V_ele_space_dim, V_ele_space_dim), dtype=PETSc.ScalarType)
     # FIXME How do I pass a null pointer for the last two arguments here?
     kernel00_cell(ffi.from_buffer(A00), w_, c_, coords_, entity_local_index,
@@ -117,6 +113,19 @@ def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
                 ffi.from_buffer(facet), 
                 ffi.from_buffer(facet_permutation))
         A10 += map_facet_cell(A10_f, i)
+    
+    return A00, A10
+
+
+@numba.cfunc(c_signature, nopython=True)
+def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
+                                facet_permutations):
+    A = numba.carray(A_, (num_facets * Vbar_ele_space_dim,
+                          num_facets * Vbar_ele_space_dim),
+            dtype=PETSc.ScalarType)
+    
+    A00, A10 = compute_A00_A10(w_, c_, coords_, entity_local_index,
+                               facet_permutations)
         
     A -= A10 @ np.linalg.solve(A00, A10.T)
 
