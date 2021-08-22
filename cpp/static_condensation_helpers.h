@@ -1,3 +1,5 @@
+// TODO Rename and remove no longer needed functions
+
 #pragma once
 
 // FIXME See which of these aren't needed

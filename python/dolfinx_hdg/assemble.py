@@ -12,24 +12,19 @@ import dolfinx_hdg.cpp
 # TODO DOLFINx also has an assemble_vector for assembling into an
 # existing PETSc vector, using @functools.singledispatch. Implement
 # this!
-def assemble_vector(L: typing.List[
-        typing.Union[Form, dolfinx.cpp.fem.Form]],
-        a: typing.List[typing.List[
-        typing.Union[Form, dolfinx.cpp.fem.Form]]]) -> PETSc.Vec:
+def assemble_vector(L: typing.Union[Form, dolfinx.cpp.fem.Form]) -> PETSc.Vec:
     """Assemble linear form into a new PETSc vector. The returned vector is
     not finalised, i.e. ghost values are not accumulated on the owning
     processes.
 
     """
-    assert(len(L) == 2)
     _L = _create_cpp_form(L)
-    _a = _create_cpp_form(a)
     b = dolfinx.cpp.la.create_vector(
-        _L[1].function_spaces[0].dofmap.index_map,
-        _L[1].function_spaces[0].dofmap.index_map_bs)
+        _L.function_spaces[0].dofmap.index_map,
+        _L.function_spaces[0].dofmap.index_map_bs)
     with b.localForm() as b_local:
         b_local.set(0.0)
-        dolfinx_hdg.cpp.assemble_vector(b_local.array_w, _L, _a)
+        dolfinx_hdg.cpp.assemble_vector(b_local.array_w, _L)
     return b
 
 

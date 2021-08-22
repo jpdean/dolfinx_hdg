@@ -19,6 +19,7 @@
 #include <xtensor/xarray.hpp>
 #include <xtensor/xio.hpp> // To cout xtensor arrays
 #include <xtensor-blas/xlinalg.hpp>
+#include "static_condensation_helpers.h"
 
 namespace dolfinx_hdg::fem::impl
 {
@@ -35,13 +36,6 @@ namespace dolfinx_hdg::fem::impl
         std::shared_ptr<const dolfinx::mesh::Mesh> mesh = a.mesh();
         assert(mesh);
         const int tdim = mesh->topology().dim();
-
-        // FIXME Check
-        const dolfinx::graph::AdjacencyList<std::int32_t> &x_dofmap =
-            mesh->geometry().dofmap();
-        const std::size_t num_dofs_g = x_dofmap.num_links(cell);
-        const xt::xtensor<double, 2> &x_g = mesh->geometry().x();
-        std::vector<double> coordinate_dofs(3 * num_dofs_g);
 
         const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap0 =
             a.function_spaces().at(0)->dofmap()->list();
@@ -71,13 +65,7 @@ namespace dolfinx_hdg::fem::impl
             auto cell_facets = c_to_f->links(c);
             const int num_facets = cell_facets.size();
 
-            // FIXME Check
-            auto x_dofs = x_dofmap.links(c);
-            for (std::size_t i = 0; i < x_dofs.size(); ++i)
-            {
-                std::copy_n(xt::row(x_g, x_dofs[i]).begin(), 3,
-                            std::next(coordinate_dofs.begin(), 3 * i));
-            }
+            auto coordinate_dofs = dolfinx_hdg::sc::get_cell_coord_dofs(mesh, c);
 
             // TODO Do this properly
             xt::xarray<double> Ae_sc = xt::zeros<double>({ndim0 * num_facets,
@@ -88,6 +76,7 @@ namespace dolfinx_hdg::fem::impl
             // perms[cell * cell_facets.size()] or can I just pass
             // a pointer to the first location?
             // FIXME Do this properly
+            // FIXME This assumes 3 facets!
             std::vector<unsigned char> cell_facet_perms =
                 {perms[c * cell_facets.size() + 0],
                  perms[c * cell_facets.size() + 1],

@@ -1,3 +1,5 @@
+// TODO Rename
+
 #include "static_condensation_helpers.h"
 
 // TODO Put in .cpp

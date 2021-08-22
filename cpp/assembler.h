@@ -16,31 +16,25 @@ namespace dolfinx_hdg::fem
 {
     template <typename T>
     void assemble_vector(xtl::span<T> b,
-                         const std::vector<std::shared_ptr<
-                             const dolfinx::fem::Form<PetscScalar>>> &L,
-                         const std::vector<std::vector<std::shared_ptr<
-                             const dolfinx::fem::Form<T>>>> &a,
+                         const dolfinx::fem::Form<PetscScalar> &L,
                          const xtl::span<const T> &constants,
                          const dolfinx::array2d<T> &coeffs)
     {
-        impl::assemble_vector(b, L, a, constants, coeffs);
+        impl::assemble_vector(b, L, constants, coeffs);
     }
 
     template <typename T>
     void assemble_vector(xtl::span<T> b,
-                         const std::vector<std::shared_ptr<
-                             const dolfinx::fem::Form<PetscScalar>>> &L,
-                         const std::vector<std::vector<std::shared_ptr<
-                             const dolfinx::fem::Form<T>>>> &a)
+                         const dolfinx::fem::Form<PetscScalar> &L)
     {
         // FIXME Think about the best way to do this. Currently, this only
         // packs constants / coefficients for the facet space form and these
         // are accessed incorrectly later
         const std::vector<T> constants =
-            dolfinx::fem::pack_constants(*L[1]);
+            dolfinx::fem::pack_constants(L);
         const dolfinx::array2d<T> coeffs =
-            dolfinx::fem::pack_coefficients(*L[1]);
-        assemble_vector(b, L, a, tcb::make_span(constants), coeffs);
+            dolfinx::fem::pack_coefficients(L);
+        assemble_vector(b, L, tcb::make_span(constants), coeffs);
     }
 
     template <typename T>

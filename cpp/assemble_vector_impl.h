@@ -25,22 +25,19 @@ namespace dolfinx_hdg::fem::impl
 {
     template <typename T>
     void assemble_vector(xtl::span<T> b,
-                         const std::vector<std::shared_ptr<
-                             const dolfinx::fem::Form<PetscScalar>>> &L,
-                         const std::vector<std::vector<std::shared_ptr<
-                             const dolfinx::fem::Form<T>>>> &a,
+                         const dolfinx::fem::Form<PetscScalar> &L,
                          const xtl::span<const T> &constants,
                          const dolfinx::array2d<T> &coeffs)
     {
-        std::shared_ptr<const dolfinx::mesh::Mesh> mesh = L[1]->mesh();
+        std::shared_ptr<const dolfinx::mesh::Mesh> mesh = L.mesh();
         assert(mesh);
         const int tdim = mesh->topology().dim();
 
-        assert(L[1]->function_spaces().at(0));
+        assert(L.function_spaces().at(0));
         const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap =
-            L[1]->function_spaces().at(0)->dofmap()->list();
+            L.function_spaces().at(0)->dofmap()->list();
         assert(dofmap);
-        const int bs = L[1]->function_spaces().at(0)->dofmap()->bs();
+        const int bs = L.function_spaces().at(0)->dofmap()->bs();
         const int num_dofs = dofmap.links(0).size();
         const int ndim = bs * num_dofs;
 
@@ -53,27 +50,29 @@ namespace dolfinx_hdg::fem::impl
         mesh->topology_mutable().create_entity_permutations();
         const std::vector<std::uint8_t> &perms =
             mesh->topology().get_facet_permutations();
+        
+        // FIXME Do this properly
+        const auto &kernel =
+            L.kernel(dolfinx::fem::IntegralType::cell, -1);
 
         for (int c = 0; c < c_to_f->num_nodes(); ++c)
         {
             auto cell_facets = c_to_f->links(c);
+            const int num_facets = cell_facets.size();
 
-            auto be0 = dolfinx_hdg::sc::assemble_cell_vector(*L[0], c, cell_facets,
-                                                             constants, coeffs);
-            auto Ae10 = dolfinx_hdg::sc::assemble_cell_matrix(
-                *a[1][0], c, cell_facets,
-                constants, coeffs);
-            auto Ae00 = dolfinx_hdg::sc::assemble_cell_matrix(
-                *a[0][0], c, cell_facets,
-                constants, coeffs);
+            auto coordinate_dofs = dolfinx_hdg::sc::get_cell_coord_dofs(mesh, c);
 
-            // Call "be1" be_sc as this is the starting point for the
-            // statically condensed vector
-            auto be_sc = dolfinx_hdg::sc::assemble_cell_vector(*L[1], c, cell_facets,
-                                                               constants, coeffs);
-            // NOTE: xt::linalg::dot does matrix-vector and matrix matrix
-            // multiplication
-            be_sc -= xt::linalg::dot(Ae10, xt::linalg::solve(Ae00, be0));
+            // TODO Do this properly
+            xt::xarray<double> be_sc = xt::zeros<double>({ndim * num_facets});
+            
+            // FIXME This is duplicate code from assemble_matrix_impl.h
+            std::vector<unsigned char> cell_facet_perms =
+                {perms[c * cell_facets.size() + 0],
+                 perms[c * cell_facets.size() + 1],
+                 perms[c * cell_facets.size() + 2]};
+            kernel(be_sc.data(), coeffs.row(c).data(), constants.data(),
+                   coordinate_dofs.data(), nullptr,
+                   cell_facet_perms.data());
 
             for (int local_f = 0; local_f < cell_facets.size(); ++local_f)
             {
