@@ -5,7 +5,8 @@ from dolfinx.fem import assemble_scalar
 from mpi4py import MPI
 from ufl import (TrialFunction, TestFunction, inner, dx, ds, FacetNormal,
                  grad, dot, SpatialCoordinate, sin, pi, div)
-from dolfinx_hdg.assemble import assemble_matrix, assemble_vector
+import dolfinx_hdg.assemble
+import dolfinx
 import numpy as np
 from dolfinx.fem import locate_dofs_topological
 from dolfinx.mesh import locate_entities_boundary
@@ -47,8 +48,9 @@ a00 = inner(grad(u), grad(v)) * dx - \
     (inner(u, dot(grad(v), n)) * ds + inner(v, dot(grad(u), n)) * ds) + \
     gamma * inner(u, v) * ds
 a10 = inner(dot(grad(u), n) - gamma * u, vbar) * ds
-a01 = inner(dot(grad(v), n) - gamma * v, ubar) * ds
-a11 = gamma * inner(ubar, vbar) * dx
+# NOTE: This adds the boundary term twice, but it's OK here as we apply
+# homogeneous Dirichlet BCs
+a11 = 2 * gamma * inner(ubar, vbar) * dx
 
 x = SpatialCoordinate(mesh)
 u_e = sin(pi * x[0]) * sin(pi * x[1])
@@ -66,9 +68,6 @@ kernel00_facet = ufc_form00.integrals(1)[0].tabulate_tensor
 ufc_form10, _, _ = dolfinx.jit.ffcx_jit(mesh.mpi_comm(), a10)
 kernel10 = ufc_form10.integrals(1)[0].tabulate_tensor
 
-ufc_form11, _, _ = dolfinx.jit.ffcx_jit(mesh.mpi_comm(), a11)
-kernel11 = ufc_form11.integrals(0)[0].tabulate_tensor
-
 ffi = cffi.FFI()
 c_signature = numba.types.void(
     numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
@@ -80,22 +79,6 @@ c_signature = numba.types.void(
 
 
 @numba.jit(nopython=True)
-def get_facet_coords(coords_, local_f):
-    # FIXME HACK
-    coords = numba.carray(coords_, (3 * 3),
-                          dtype=np.double)
-    facet_coords = np.zeros((2 * 3))
-    if local_f == 0:
-        facet_coords[:] = coords[3:]
-    elif local_f == 1:
-        facet_coords[0:2] = coords[0:2]
-        facet_coords[3:] = coords[-3:]
-    else:
-        facet_coords[:] = coords[0:6]
-    return facet_coords
-
-
-@numba.jit(nopython=True)
 def map_facet_cell(A_f, f):
     A = np.zeros((num_facets * Vbar_ele_space_dim,
                   V_ele_space_dim), dtype=PETSc.ScalarType)
@@ -103,6 +86,7 @@ def map_facet_cell(A_f, f):
     end_row = f * Vbar_ele_space_dim + Vbar_ele_space_dim
     A[start_row:end_row, :] += A_f[:, :]
     return A
+
 
 @numba.cfunc(c_signature, nopython=True)
 def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
@@ -134,33 +118,27 @@ def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
                 ffi.from_buffer(facet_permutation))
         A10 += map_facet_cell(A10_f, i)
         
-    A += np.ones_like(A)
+    A -= A10 @ np.linalg.solve(A00, A10.T)
 
+
+# Boundary conditions
+facets = locate_entities_boundary(mesh, 1,
+                                  lambda x: np.logical_or(np.logical_or(np.isclose(x[0], 0.0), np.isclose(x[0], 1.0)),
+                                                          np.logical_or(np.isclose(x[1], 0.0), np.isclose(x[1], 1.0))))
+ubar0 = Function(Vbar)
+dofs_bar = locate_dofs_topological(Vbar, 1, facets)
+bc_bar = DirichletBC(ubar0, dofs_bar)
 
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_A.address)], None)}
 a = dolfinx.cpp.fem.Form(
     [Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], False, None)
-A = assemble_matrix(a)
+A = dolfinx_hdg.assemble.assemble_matrix(a, [bc_bar])
+A.assemble()
+dolfinx.fem.assemble_matrix(A, a11, [bc_bar])
 A.assemble()
 
-np.set_printoptions(linewidth=200, formatter=dict(float=lambda x: "%.3g" % x))
 print(A[:, :])
-
-
-# a = [[a00, a01],
-#      [a10, a11]]
-
-# # Boundary conditions
-# facets = locate_entities_boundary(mesh, 1,
-#                                   lambda x: np.logical_or(np.logical_or(np.isclose(x[0], 0.0), np.isclose(x[0], 1.0)),
-#                                                           np.logical_or(np.isclose(x[1], 0.0), np.isclose(x[1], 1.0))))
-# ubar0 = Function(Vbar)
-# dofs_bar = locate_dofs_topological(Vbar, 1, facets)
-# bc_bar = DirichletBC(ubar0, dofs_bar)
-
-# A = assemble_matrix(a, [bc_bar])
-# A.assemble()
 
 # f = [f0,
 #      f1]
