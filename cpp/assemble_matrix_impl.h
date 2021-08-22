@@ -83,8 +83,18 @@ namespace dolfinx_hdg::fem::impl
             xt::xarray<double> Ae_sc = xt::zeros<double>({ndim0 * num_facets,
                                                           ndim1 * num_facets});
 
+            // FIXME I need to pass permutations of all facets to kernel.
+            // Do I need to create a vector of
+            // perms[cell * cell_facets.size()] or can I just pass
+            // a pointer to the first location?
+            // FIXME Do this properly
+            std::vector<unsigned char> cell_facet_perms =
+                {perms[c * cell_facets.size() + 0],
+                 perms[c * cell_facets.size() + 1],
+                 perms[c * cell_facets.size() + 2]};
             kernel(Ae_sc.data(), coeffs.row(c).data(), constants.data(),
-                   coordinate_dofs.data(), nullptr, nullptr);
+                   coordinate_dofs.data(), nullptr,
+                   cell_facet_perms.data());
 
             // Double loop over cell facets to assemble
             // FIXME Is there a better way?

@@ -1,3 +1,4 @@
+from math import perm
 import dolfinx
 from dolfinx import UnitSquareMesh, FunctionSpace, Function, DirichletBC
 from dolfinx.fem import assemble_scalar
@@ -27,8 +28,7 @@ Vbar = FunctionSpace(mesh, ("DG", 1), codimension=1)
 V_ele_space_dim = V.dolfin_element().space_dimension()
 Vbar_ele_space_dim = Vbar.dolfin_element().space_dimension()
 
-# TODO Get this properly
-num_facets = 3
+num_facets = mesh.ufl_cell().num_facets()
 
 u = TrialFunction(V)
 v = TestFunction(V)
@@ -78,17 +78,33 @@ c_signature = numba.types.void(
     numba.types.CPointer(numba.types.int32),
     numba.types.CPointer(numba.types.uint8))
 
-
 @numba.cfunc(c_signature, nopython=True)
 def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
-                                permutation=ffi.NULL):
+                                facet_permutations):
     A = numba.carray(A_, (num_facets * Vbar_ele_space_dim,
                           num_facets * Vbar_ele_space_dim),
             dtype=PETSc.ScalarType)
     
     A00 = np.zeros((V_ele_space_dim, V_ele_space_dim), dtype=PETSc.ScalarType)
-    kernel00_cell(ffi.from_buffer(A00), w_, c_, coords_, entity_local_index, permutation)
+    # FIXME How do I pass a null pointer for the last two arguments here?
+    kernel00_cell(ffi.from_buffer(A00), w_, c_, coords_, entity_local_index,
+                  facet_permutations)
 
+    # FIXME Is there a neater way to do this?
+    facet = np.zeros((1), dtype=np.int32)
+    facet_permutation = np.zeros((1), dtype=np.uint8)
+    for i in range(num_facets):
+        facet[0] = i
+        facet_permutation[0] = facet_permutations[i]
+        kernel00_facet(ffi.from_buffer(A00), w_, c_, coords_,
+                       ffi.from_buffer(facet), 
+                       ffi.from_buffer(facet_permutation))
+        A10_f = np.zeros((Vbar_ele_space_dim, V_ele_space_dim),
+                          dtype=PETSc.ScalarType)
+        kernel10(ffi.from_buffer(A10_f), w_, c_, coords_,
+                ffi.from_buffer(facet), 
+                ffi.from_buffer(facet_permutation))
+        
     A += np.ones_like(A)
 
 
