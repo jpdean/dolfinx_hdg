@@ -1,5 +1,6 @@
-from math import perm
-from shutil import unregister_archive_format
+# FIXME When calling the kernels, I am often passing data that should be
+# null
+
 import dolfinx
 from dolfinx import UnitSquareMesh, FunctionSpace, Function, DirichletBC
 from dolfinx.fem import assemble_scalar
@@ -13,14 +14,13 @@ from dolfinx.fem import locate_dofs_topological
 from dolfinx.mesh import locate_entities_boundary
 from dolfinx.fem import set_bc
 from petsc4py import PETSc
-from dolfinx_hdg.sc import back_sub
 from dolfinx.io import XDMFFile
 import numba
 import cffi
 
 np.set_printoptions(linewidth=200)
 
-n = 1
+n = 32
 mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 
 V = FunctionSpace(mesh, ("DG", 1))
@@ -44,7 +44,6 @@ h = 1 / n
 gamma = 10.0 / h  # TODO Add dependence on order of polynomials
 n = FacetNormal(mesh)
 
-# TODO Check this
 a00 = inner(grad(u), grad(v)) * dx - \
     (inner(u, dot(grad(v), n)) * ds + inner(v, dot(grad(u), n)) * ds) + \
     gamma * inner(u, v) * ds
@@ -57,7 +56,6 @@ x = SpatialCoordinate(mesh)
 u_e = sin(pi * x[0]) * sin(pi * x[1])
 f = - div(grad(u_e))
 
-# FIXME Constant doesn't work in my facet space branch
 f0 = inner(f, v) * dx
 
 # JIT compile individual blocks tabulation kernels
@@ -108,13 +106,13 @@ def compute_A00_A10(w_, c_, coords_, entity_local_index,
         facet[0] = i
         facet_permutation[0] = facet_permutations[i]
         kernel00_facet(ffi.from_buffer(A00), w_, c_, coords_,
-                       ffi.from_buffer(facet), 
+                       ffi.from_buffer(facet),
                        ffi.from_buffer(facet_permutation))
         A10_f = np.zeros((Vbar_ele_space_dim, V_ele_space_dim),
-                          dtype=PETSc.ScalarType)
+                         dtype=PETSc.ScalarType)
         kernel10(ffi.from_buffer(A10_f), w_, c_, coords_,
-                ffi.from_buffer(facet), 
-                ffi.from_buffer(facet_permutation))
+                 ffi.from_buffer(facet),
+                 ffi.from_buffer(facet_permutation))
         A10 += map_facet_cell(A10_f, i)
     return A00, A10
 
@@ -124,11 +122,11 @@ def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
                                 facet_permutations):
     A = numba.carray(A_, (num_facets * Vbar_ele_space_dim,
                           num_facets * Vbar_ele_space_dim),
-            dtype=PETSc.ScalarType)
-    
+                     dtype=PETSc.ScalarType)
+
     A00, A10 = compute_A00_A10(w_, c_, coords_, entity_local_index,
                                facet_permutations)
-        
+
     A -= A10 @ np.linalg.solve(A00, A10.T)
 
 
@@ -136,13 +134,13 @@ def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
 def tabulate_condensed_tensor_b(b_, w_, c_, coords_, entity_local_index,
                                 facet_permutations):
     b = numba.carray(b_, (num_facets * Vbar_ele_space_dim),
-                          dtype=PETSc.ScalarType)
-    
+                     dtype=PETSc.ScalarType)
+
     b0 = np.zeros((V_ele_space_dim), dtype=PETSc.ScalarType)
     # TODO Pass nullptr for last two parameters
     kernel_f0(ffi.from_buffer(b0), w_, c_, coords_, entity_local_index,
-                  facet_permutations)
-    
+              facet_permutations)
+
     A00, A10 = compute_A00_A10(w_, c_, coords_, entity_local_index,
                                facet_permutations)
     b -= A10 @ np.linalg.solve(A00, b0)
@@ -165,8 +163,6 @@ A.assemble()
 dolfinx.fem.assemble_matrix(A, a11, [bc_bar])
 A.assemble()
 
-# print(A[:, :])
-
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_b.address)], None)}
 f = dolfinx.cpp.fem.Form(
@@ -174,7 +170,6 @@ f = dolfinx.cpp.fem.Form(
 b = dolfinx_hdg.assemble.assemble_vector(f)
 # FIXME apply_lifting not implemented in my facet space branch, so must use homogeneous BC
 set_bc(b, [bc_bar])
-# print(b[:])
 
 solver = PETSc.KSP().create(mesh.mpi_comm())
 solver.setOperators(A)
@@ -184,33 +179,36 @@ solver.getPC().setType("lu")
 ubar = Function(Vbar)
 solver.solve(b, ubar.vector)
 
-# print(ubar.vector[:])
-
 
 @numba.cfunc(c_signature, nopython=True)
 def tabulate_x(x_, w_, c_, coords_, entity_local_index,
                facet_permutations):
     x = numba.carray(x_, (V_ele_space_dim), dtype=PETSc.ScalarType)
-    x += np.ones_like(x)
-    
+    xbar = numba.carray(w_, (num_facets * Vbar_ele_space_dim),
+                        dtype=PETSc.ScalarType)
+    # FIXME Don't need to pass w_ here. Pass null instead.
+    A00, A10 = compute_A00_A10(w_, c_, coords_, entity_local_index,
+                               facet_permutations)
+    b0 = np.zeros((V_ele_space_dim), dtype=PETSc.ScalarType)
+    # FIXME Pass nullptr for last two parameters
+    kernel_f0(ffi.from_buffer(b0), w_, c_, coords_, entity_local_index,
+              facet_permutations)
+    x += np.linalg.solve(A00, b0 - A10.T @ xbar)
+
 
 u = Function(V)
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_x.address)], None)}
 u_form = dolfinx.cpp.fem.Form(
-            [V._cpp_object], integrals, [], [], False, None)
+    [V._cpp_object], integrals, [ubar._cpp_object], [], False, None)
 # TODO Add version where I can pass the vector to fill
 u.vector[:] = dolfinx_hdg.assemble.assemble_vector(u_form)
 
-print(u.vector[:])
+e = u - u_e
+e_L2 = np.sqrt(mesh.mpi_comm().allreduce(
+    assemble_scalar(inner(e, e) * dx), op=MPI.SUM))
+print(f"L2-norm of error = {e_L2}")
 
-# u.vector[:] = back_sub(ubar.vector, a, f)
-
-# e = u - u_e
-# e_L2 = np.sqrt(mesh.mpi_comm().allreduce(
-#     assemble_scalar(inner(e, e) * dx), op=MPI.SUM))
-# print(f"L2-norm of error = {e_L2}")
-
-# with XDMFFile(MPI.COMM_WORLD, "poisson.xdmf", "w") as file:
-#     file.write_mesh(mesh)
-#     file.write_function(u)
+with XDMFFile(MPI.COMM_WORLD, "poisson.xdmf", "w") as file:
+    file.write_mesh(mesh)
+    file.write_function(u)

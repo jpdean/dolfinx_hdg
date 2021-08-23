@@ -69,12 +69,24 @@ namespace dolfinx_hdg::fem::impl
             const int be_size = codim == 0 ? ndim : ndim * num_facets;
             xt::xarray<double> be = xt::zeros<double>({be_size});
 
-            // FIXME This is duplicate code from assemble_matrix_impl.h
-            std::vector<unsigned char> cell_facet_perms =
-                {perms[c * cell_facets.size() + 0],
-                 perms[c * cell_facets.size() + 1],
-                 perms[c * cell_facets.size() + 2]};
-            kernel(be.data(), coeffs.row(c).data(), constants.data(),
+            // TODO Modify assemble_matrix_impl.h like this
+            std::vector<unsigned char> cell_facet_perms(num_facets);
+            // FIXME This assumes codim = 1. Need to generalize.
+            std::vector<T> cell_coeffs;
+            for (int local_f = 0; local_f < num_facets; ++local_f)
+            {
+                cell_facet_perms[local_f] = perms[c * cell_facets.size() + local_f];
+
+                // Pack coefficients for each of the cells facets into one
+                // array
+                // FIXME Do this without loop
+                for (auto coeff : coeffs.row(cell_facets[local_f]))
+                {
+                    cell_coeffs.push_back(coeff);
+                }
+            }
+
+            kernel(be.data(), cell_coeffs.data(), constants.data(),
                    coordinate_dofs.data(), nullptr,
                    cell_facet_perms.data());
 
