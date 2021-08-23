@@ -20,6 +20,7 @@ import cffi
 
 np.set_printoptions(linewidth=200)
 
+print("Set up problem")
 n = 32
 mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 
@@ -58,6 +59,7 @@ f = - div(grad(u_e))
 
 f0 = inner(f, v) * dx
 
+print("Compile forms")
 # JIT compile individual blocks tabulation kernels
 ufc_form00, _, _ = dolfinx.jit.ffcx_jit(mesh.mpi_comm(), a00)
 kernel00_cell = ufc_form00.integrals(0)[0].tabulate_tensor
@@ -69,6 +71,7 @@ kernel10 = ufc_form10.integrals(1)[0].tabulate_tensor
 ufc_form_f0, _, _ = dolfinx.jit.ffcx_jit(mesh.mpi_comm(), f0)
 kernel_f0 = ufc_form_f0.integrals(0)[0].tabulate_tensor
 
+print("Compile numba")
 ffi = cffi.FFI()
 c_signature = numba.types.void(
     numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
@@ -146,40 +149,6 @@ def tabulate_condensed_tensor_b(b_, w_, c_, coords_, entity_local_index,
     b -= A10 @ np.linalg.solve(A00, b0)
 
 
-# Boundary conditions
-facets = locate_entities_boundary(mesh, 1,
-                                  lambda x: np.logical_or(np.logical_or(np.isclose(x[0], 0.0), np.isclose(x[0], 1.0)),
-                                                          np.logical_or(np.isclose(x[1], 0.0), np.isclose(x[1], 1.0))))
-ubar0 = Function(Vbar)
-dofs_bar = locate_dofs_topological(Vbar, 1, facets)
-bc_bar = DirichletBC(ubar0, dofs_bar)
-
-integrals = {dolfinx.fem.IntegralType.cell:
-             ([(-1, tabulate_condensed_tensor_A.address)], None)}
-a = dolfinx.cpp.fem.Form(
-    [Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], False, None)
-A = dolfinx_hdg.assemble.assemble_matrix(a, [bc_bar])
-A.assemble()
-dolfinx.fem.assemble_matrix(A, a11, [bc_bar])
-A.assemble()
-
-integrals = {dolfinx.fem.IntegralType.cell:
-             ([(-1, tabulate_condensed_tensor_b.address)], None)}
-f = dolfinx.cpp.fem.Form(
-    [Vbar._cpp_object], integrals, [], [], False, None)
-b = dolfinx_hdg.assemble.assemble_vector(f)
-# FIXME apply_lifting not implemented in my facet space branch, so must use homogeneous BC
-set_bc(b, [bc_bar])
-
-solver = PETSc.KSP().create(mesh.mpi_comm())
-solver.setOperators(A)
-solver.setType("preonly")
-solver.getPC().setType("lu")
-
-ubar = Function(Vbar)
-solver.solve(b, ubar.vector)
-
-
 @numba.cfunc(c_signature, nopython=True)
 def tabulate_x(x_, w_, c_, coords_, entity_local_index,
                facet_permutations):
@@ -196,6 +165,44 @@ def tabulate_x(x_, w_, c_, coords_, entity_local_index,
     x += np.linalg.solve(A00, b0 - A10.T @ xbar)
 
 
+print("Boundary conditions")
+# Boundary conditions
+facets = locate_entities_boundary(mesh, 1,
+                                  lambda x: np.logical_or(np.logical_or(np.isclose(x[0], 0.0), np.isclose(x[0], 1.0)),
+                                                          np.logical_or(np.isclose(x[1], 0.0), np.isclose(x[1], 1.0))))
+ubar0 = Function(Vbar)
+dofs_bar = locate_dofs_topological(Vbar, 1, facets)
+bc_bar = DirichletBC(ubar0, dofs_bar)
+
+print("Assemble LSH")
+integrals = {dolfinx.fem.IntegralType.cell:
+             ([(-1, tabulate_condensed_tensor_A.address)], None)}
+a = dolfinx.cpp.fem.Form(
+    [Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], False, None)
+A = dolfinx_hdg.assemble.assemble_matrix(a, [bc_bar])
+A.assemble()
+dolfinx.fem.assemble_matrix(A, a11, [bc_bar])
+A.assemble()
+
+print("Assemble RHS")
+integrals = {dolfinx.fem.IntegralType.cell:
+             ([(-1, tabulate_condensed_tensor_b.address)], None)}
+f = dolfinx.cpp.fem.Form(
+    [Vbar._cpp_object], integrals, [], [], False, None)
+b = dolfinx_hdg.assemble.assemble_vector(f)
+# FIXME apply_lifting not implemented in my facet space branch, so must use homogeneous BC
+set_bc(b, [bc_bar])
+
+print("Solve")
+solver = PETSc.KSP().create(mesh.mpi_comm())
+solver.setOperators(A)
+solver.setType("preonly")
+solver.getPC().setType("lu")
+
+ubar = Function(Vbar)
+solver.solve(b, ubar.vector)
+
+print("Back substitution")
 u = Function(V)
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_x.address)], None)}
@@ -204,11 +211,13 @@ u_form = dolfinx.cpp.fem.Form(
 # TODO Add version where I can pass the vector to fill
 u.vector[:] = dolfinx_hdg.assemble.assemble_vector(u_form)
 
+print("Compute error")
 e = u - u_e
 e_L2 = np.sqrt(mesh.mpi_comm().allreduce(
     assemble_scalar(inner(e, e) * dx), op=MPI.SUM))
 print(f"L2-norm of error = {e_L2}")
 
+print("Write to file")
 with XDMFFile(MPI.COMM_WORLD, "poisson.xdmf", "w") as file:
     file.write_mesh(mesh)
     file.write_function(u)
