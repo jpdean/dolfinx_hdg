@@ -43,7 +43,7 @@ vbar = TestFunction(Vbar)
 # FIXME CellDiameter currently not supported by my facet space
 # branch
 h = 1 / n
-gamma = 10.0 / h  # TODO Add dependence on order of polynomials
+gamma = 10.0 * k**2 / h
 n = FacetNormal(mesh)
 
 a00 = inner(grad(u), grad(v)) * dx - \
