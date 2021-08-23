@@ -1,4 +1,5 @@
 from math import perm
+from shutil import unregister_archive_format
 import dolfinx
 from dolfinx import UnitSquareMesh, FunctionSpace, Function, DirichletBC
 from dolfinx.fem import assemble_scalar
@@ -164,7 +165,7 @@ A.assemble()
 dolfinx.fem.assemble_matrix(A, a11, [bc_bar])
 A.assemble()
 
-print(A[:, :])
+# print(A[:, :])
 
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_b.address)], None)}
@@ -173,7 +174,7 @@ f = dolfinx.cpp.fem.Form(
 b = dolfinx_hdg.assemble.assemble_vector(f)
 # FIXME apply_lifting not implemented in my facet space branch, so must use homogeneous BC
 set_bc(b, [bc_bar])
-print(b[:])
+# print(b[:])
 
 solver = PETSc.KSP().create(mesh.mpi_comm())
 solver.setOperators(A)
@@ -183,9 +184,26 @@ solver.getPC().setType("lu")
 ubar = Function(Vbar)
 solver.solve(b, ubar.vector)
 
-print(ubar.vector[:])
+# print(ubar.vector[:])
 
-# u = Function(V)
+
+@numba.cfunc(c_signature, nopython=True)
+def tabulate_x(x_, w_, c_, coords_, entity_local_index,
+               facet_permutations):
+    x = numba.carray(x_, (V_ele_space_dim), dtype=PETSc.ScalarType)
+    x += np.ones_like(x)
+    
+
+u = Function(V)
+integrals = {dolfinx.fem.IntegralType.cell:
+             ([(-1, tabulate_x.address)], None)}
+u_form = dolfinx.cpp.fem.Form(
+            [V._cpp_object], integrals, [], [], False, None)
+# TODO Add version where I can pass the vector to fill
+u.vector[:] = dolfinx_hdg.assemble.assemble_vector(u_form)
+
+print(u.vector[:])
+
 # u.vector[:] = back_sub(ubar.vector, a, f)
 
 # e = u - u_e

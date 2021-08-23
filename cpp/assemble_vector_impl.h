@@ -41,6 +41,8 @@ namespace dolfinx_hdg::fem::impl
         const int num_dofs = dofmap.links(0).size();
         const int ndim = bs * num_dofs;
 
+        const int codim = L.function_spaces().at(0)->codimension();
+
         // TODO DOF Transformations
 
         // TODO Is this needed?
@@ -50,7 +52,7 @@ namespace dolfinx_hdg::fem::impl
         mesh->topology_mutable().create_entity_permutations();
         const std::vector<std::uint8_t> &perms =
             mesh->topology().get_facet_permutations();
-        
+
         // FIXME Do this properly
         const auto &kernel =
             L.kernel(dolfinx::fem::IntegralType::cell, -1);
@@ -63,35 +65,47 @@ namespace dolfinx_hdg::fem::impl
             auto coordinate_dofs = dolfinx_hdg::sc::get_cell_coord_dofs(mesh, c);
 
             // TODO Do this properly
-            xt::xarray<double> be_sc = xt::zeros<double>({ndim * num_facets});
-            
+            // Check codim either 0 or 1
+            const int be_size = codim == 0 ? ndim : ndim * num_facets;
+            xt::xarray<double> be = xt::zeros<double>({be_size});
+
             // FIXME This is duplicate code from assemble_matrix_impl.h
             std::vector<unsigned char> cell_facet_perms =
                 {perms[c * cell_facets.size() + 0],
                  perms[c * cell_facets.size() + 1],
                  perms[c * cell_facets.size() + 2]};
-            kernel(be_sc.data(), coeffs.row(c).data(), constants.data(),
+            kernel(be.data(), coeffs.row(c).data(), constants.data(),
                    coordinate_dofs.data(), nullptr,
                    cell_facet_perms.data());
 
-            for (int local_f = 0; local_f < cell_facets.size(); ++local_f)
+            if (codim == 0)
             {
-                const int f = cell_facets[local_f];
-
-                auto dofs = dofmap.links(f);
-
-                // Vector corresponding to dofs of facets f
-                // NOTE Have to cast to xt::xarray<double> (can't just use auto)
-                // otherwise it returns a view and Le_sc_f.data() gets the
-                // wrong values (the values) from the full Ae_sc array
-                xt::xarray<double> be_sc_f =
-                    xt::view(be_sc,
-                             xt::range(local_f * ndim,
-                                       local_f * ndim + ndim));
-
+                auto dofs = dofmap.links(c);
                 for (int i = 0; i < num_dofs; ++i)
                     for (int k = 0; k < bs; ++k)
-                        b[bs * dofs[i] + k] += be_sc_f[bs * i + k];
+                        b[bs * dofs[i] + k] += be[bs * i + k];
+            }
+            else
+            {
+                for (int local_f = 0; local_f < cell_facets.size(); ++local_f)
+                {
+                    const int f = cell_facets[local_f];
+
+                    auto dofs = dofmap.links(f);
+
+                    // Vector corresponding to dofs of facets f
+                    // NOTE Have to cast to xt::xarray<double> (can't just use auto)
+                    // otherwise it returns a view and Le_sc_f.data() gets the
+                    // wrong values (the values) from the full Ae_sc array
+                    xt::xarray<double> be_sc_f =
+                        xt::view(be,
+                                 xt::range(local_f * ndim,
+                                           local_f * ndim + ndim));
+
+                    for (int i = 0; i < num_dofs; ++i)
+                        for (int k = 0; k < bs; ++k)
+                            b[bs * dofs[i] + k] += be_sc_f[bs * i + k];
+                }
             }
         }
     }
