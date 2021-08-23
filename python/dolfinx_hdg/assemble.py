@@ -8,10 +8,7 @@ from dolfinx.fem.assemble import _create_cpp_form
 import dolfinx_hdg.cpp
 
 
-# NOTE This assumes the facet space is in the L[1] position
-# TODO DOLFINx also has an assemble_vector for assembling into an
-# existing PETSc vector, using @functools.singledispatch. Implement
-# this!
+@functools.singledispatch
 def assemble_vector(L: typing.Union[Form, dolfinx.cpp.fem.Form]) -> PETSc.Vec:
     """Assemble linear form into a new PETSc vector. The returned vector is
     not finalised, i.e. ghost values are not accumulated on the owning
@@ -25,6 +22,17 @@ def assemble_vector(L: typing.Union[Form, dolfinx.cpp.fem.Form]) -> PETSc.Vec:
     with b.localForm() as b_local:
         b_local.set(0.0)
         dolfinx_hdg.cpp.assemble_vector(b_local.array_w, _L)
+    return b
+
+
+@assemble_vector.register(PETSc.Vec)
+def _(b: PETSc.Vec, L: typing.Union[Form, dolfinx.cpp.fem.Form]) -> PETSc.Vec:
+    """Assemble linear form into an existing PETSc vector. The vector is not
+    zeroed before assembly and it is not finalised, qi.e. ghost values are
+    not accumulated on the owning processes.
+    """
+    with b.localForm() as b_local:
+        dolfinx_hdg.cpp.assemble_vector(b_local.array_w, _create_cpp_form(L))
     return b
 
 

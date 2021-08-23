@@ -209,8 +209,8 @@ integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_x.address)], None)}
 u_form = dolfinx.cpp.fem.Form(
     [V._cpp_object], integrals, [ubar._cpp_object], [], False, None)
-# TODO Add version where I can pass the vector to fill
-u.vector[:] = dolfinx_hdg.assemble.assemble_vector(u_form)
+
+dolfinx_hdg.assemble.assemble_vector(u.vector, u_form)
 
 print("Compute error")
 e = u - u_e
