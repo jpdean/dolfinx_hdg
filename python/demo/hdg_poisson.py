@@ -24,9 +24,10 @@ print("Set up problem")
 n = 32
 mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 
-V = FunctionSpace(mesh, ("DG", 1))
+k = 1
+V = FunctionSpace(mesh, ("DG", k))
 # TODO (mesh, codimension=1)
-Vbar = FunctionSpace(mesh, ("DG", 1), codimension=1)
+Vbar = FunctionSpace(mesh, ("DG", k), codimension=1)
 
 V_ele_space_dim = V.dolfin_element().space_dimension()
 Vbar_ele_space_dim = Vbar.dolfin_element().space_dimension()
