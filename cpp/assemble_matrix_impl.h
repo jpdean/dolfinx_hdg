@@ -76,11 +76,13 @@ namespace dolfinx_hdg::fem::impl
             // perms[cell * cell_facets.size()] or can I just pass
             // a pointer to the first location?
             // FIXME Do this properly
-            // FIXME This assumes 3 facets!
-            std::vector<unsigned char> cell_facet_perms =
-                {perms[c * cell_facets.size() + 0],
-                 perms[c * cell_facets.size() + 1],
-                 perms[c * cell_facets.size() + 2]};
+            std::vector<unsigned char> cell_facet_perms(num_facets);
+            for (int local_f = 0; local_f < num_facets; ++local_f)
+            {
+                cell_facet_perms[local_f] =
+                    perms[c * num_facets + local_f];
+            }
+
             kernel(Ae_sc.data(), coeffs.row(c).data(), constants.data(),
                    coordinate_dofs.data(), nullptr,
                    cell_facet_perms.data());
