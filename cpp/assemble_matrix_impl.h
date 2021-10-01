@@ -56,6 +56,7 @@ namespace dolfinx_hdg::fem::impl
         const int ndim0 = bs0 * num_dofs0;
         const int ndim1 = bs1 * num_dofs1;
         std::vector<std::uint8_t> cell_facet_perms(num_cell_facets);
+        auto c_to_f = mesh.topology().connectivity(tdim, tdim - 1);
 
         xt::xarray<T> Ae_sc = xt::zeros<T>({ndim0 * num_cell_facets,
                                             ndim1 * num_cell_facets});
@@ -80,7 +81,70 @@ namespace dolfinx_hdg::fem::impl
             kernel(Ae_sc.data(), coeffs.data() + cell * cstride, constants.data(),
                    coordinate_dofs.data(), nullptr, cell_facet_perms.data());
             
-            std::cout << Ae_sc << std::endl;
+            auto cell_facets = c_to_f->links(cell);
+
+            // Double loop over cell facets to assemble
+            // FIXME Is there a better way?
+            for (int local_f_i = 0; local_f_i < num_cell_facets; ++local_f_i)
+            {
+                for (int local_f_j = 0; local_f_j < num_cell_facets; ++local_f_j)
+                {
+                    const int f_i = cell_facets[local_f_i];
+                    const int f_j = cell_facets[local_f_j];
+
+                    auto dofs0 = dofmap0.links(f_i);
+                    auto dofs1 = dofmap1.links(f_j);
+
+                    // Matrix corresponding to dofs of facets f_i and f_j
+                    // NOTE Have to cast to xt::xarray<double> (can't just use auto)
+                    // otherwise it returns a view and Ae_sc_f_ij.data() gets the
+                    // wrong values (the values) from the full Ae_sc array
+                    xt::xarray<double> Ae_sc_f_ij =
+                        xt::view(Ae_sc,
+                                 xt::range(local_f_i * ndim0,
+                                           local_f_i * ndim0 + ndim0),
+                                 xt::range(local_f_j * ndim1,
+                                           local_f_j * ndim1 + ndim1));
+
+                    // FIXME Might be better/more efficient to do this to Ae_sc
+                    // directly.
+                    if (!bc0.empty())
+                    {
+                        for (int i = 0; i < num_dofs0; ++i)
+                        {
+                            for (int k = 0; k < bs0; ++k)
+                            {
+                                if (bc0[bs0 * dofs0[i] + k])
+                                {
+                                    // Zero row bs0 * i + k
+                                    const int row = bs0 * i + k;
+                                    xt::view(Ae_sc_f_ij, row, xt::all()) = 0.0;
+                                }
+                            }
+                        }
+                    }
+
+                    if (!bc1.empty())
+                    {
+                        for (int j = 0; j < num_dofs1; ++j)
+                        {
+                            for (int k = 0; k < bs1; ++k)
+                            {
+                                if (bc1[bs1 * dofs1[j] + k])
+                                {
+                                    // Zero column bs1 * j + k
+                                    const int col = bs1 * j + k;
+                                    xt::view(Ae_sc_f_ij, xt::all(), col) = 0.0;
+                                }
+                            }
+                        }
+                    }
+
+                    mat_set(dofs0.size(), dofs0.data(),
+                            dofs1.size(), dofs1.data(),
+                            Ae_sc_f_ij.data());
+                }
+            }
         }
     }
 
