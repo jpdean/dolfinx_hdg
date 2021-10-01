@@ -1,3 +1,4 @@
+from typing import Protocol
 import dolfinx
 import dolfinx_hdg.assemble
 from dolfinx import UnitSquareMesh, FunctionSpace, Function, DirichletBC
@@ -46,20 +47,23 @@ def test_assemble_matrix():
     A = dolfinx_hdg.assemble.assemble_matrix(a)
     A.assemble()
 
-    print(A[:, :])
-
-    # A_exact = np.array([[1, 1, 1, 1, 0, 0, 1, 1, 0, 0],
-    #                     [1, 1, 1, 1, 0, 0, 1, 1, 0, 0],
-    #                     [1, 1, 2, 2, 1, 1, 1, 1, 1, 1],
-    #                     [1, 1, 2, 2, 1, 1, 1, 1, 1, 1],
-    #                     [0, 0, 1, 1, 1, 1, 0, 0, 1, 1],
-    #                     [0, 0, 1, 1, 1, 1, 0, 0, 1, 1],
-    #                     [1, 1, 1, 1, 0, 0, 1, 1, 0, 0],
-    #                     [1, 1, 1, 1, 0, 0, 1, 1, 0, 0],
-    #                     [0, 0, 1, 1, 1, 1, 0, 0, 1, 1],
-    #                     [0, 0, 1, 1, 1, 1, 0, 0, 1, 1]])
-
-    # assert(np.allclose(A[:, :], A_exact))
+    A_expected = np.zeros_like(A[:, :])
+    tdim = mesh.topology.dim
+    mesh.topology.create_connectivity(tdim, tdim - 1)
+    c_to_f = mesh.topology.connectivity(tdim, tdim -1)
+    for cell in range(c_to_f.num_nodes):
+        facets = c_to_f.links(cell)
+        for facet_i in facets:
+            for facet_j in facets:
+                dofs_i = Vbar.dofmap.list.links(facet_i)
+                dofs_j = Vbar.dofmap.list.links(facet_j)
+                # FIXME Use numpy slices rather than so many
+                # for loops
+                for dof_i in dofs_i:
+                    for dof_j in dofs_j:
+                        A_expected[dof_i, dof_j] += 1
+                
+    assert(np.allclose(A[:, :], A_expected))
 
     # facets = locate_entities_boundary(mesh, 1,
     #                                   lambda x: np.logical_or(
