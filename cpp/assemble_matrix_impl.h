@@ -22,6 +22,69 @@
 namespace dolfinx_hdg::fem::impl
 {
     template <typename T>
+    void assemble_cells(
+        const std::function<int(std::int32_t, const std::int32_t*, std::int32_t,
+                                const std::int32_t*, const T*)>& mat_set,
+        const dolfinx::mesh::Mesh& mesh,
+        const xtl::span<const std::int32_t>& cells,
+        const dolfinx::graph::AdjacencyList<std::int32_t>& dofmap0, int bs0,
+        const dolfinx::graph::AdjacencyList<std::int32_t>& dofmap1, int bs1,
+        const std::vector<bool>& bc0, const std::vector<bool>& bc1,
+        const std::function<void(T*, const T*, const T*, const double*, const int*,
+                                const std::uint8_t*)>& kernel,
+        const xtl::span<const T>& coeffs, int cstride,
+        const xtl::span<const T>& constants,
+        const std::function<std::uint8_t(std::size_t)>& get_perm)
+    {
+        const int tdim = mesh.topology().dim();
+
+        // Prepare cell geometry
+        const dolfinx::graph::AdjacencyList<std::int32_t>& x_dofmap =
+            mesh.geometry().dofmap();
+
+        // FIXME: Add proper interface for num coordinate dofs
+        const std::size_t num_dofs_g = x_dofmap.num_links(0);
+        const xt::xtensor<double, 2>& x_g = mesh.geometry().x();
+
+        const int num_cell_facets
+            = dolfinx::mesh::cell_num_entities(mesh.topology().cell_type(), tdim - 1);
+        
+        // Data structures used in assembly
+        std::vector<double> coordinate_dofs(3 * num_dofs_g);
+        const int num_dofs0 = dofmap0.links(0).size();
+        const int num_dofs1 = dofmap1.links(0).size();
+        const int ndim0 = bs0 * num_dofs0;
+        const int ndim1 = bs1 * num_dofs1;
+        std::vector<std::uint8_t> cell_facet_perms(num_cell_facets);
+
+        xt::xarray<T> Ae_sc = xt::zeros<T>({ndim0 * num_cell_facets,
+                                            ndim1 * num_cell_facets});
+        
+        for (auto cell : cells)
+        {
+            // Get cell coordinates/geometry
+            auto x_dofs = x_dofmap.links(cell);
+            for (std::size_t i = 0; i < x_dofs.size(); ++i)
+            {
+                std::copy_n(xt::row(x_g, x_dofs[i]).begin(), 3,
+                            std::next(coordinate_dofs.begin(), 3 * i));
+            }
+
+            for (int local_f = 0; local_f < num_cell_facets; ++local_f)
+            {
+                cell_facet_perms[local_f] =
+                    get_perm(cell * num_cell_facets + local_f);
+            }
+
+            std::fill(Ae_sc.begin(), Ae_sc.end(), 0);            
+            kernel(Ae_sc.data(), coeffs.data() + cell * cstride, constants.data(),
+                   coordinate_dofs.data(), nullptr, cell_facet_perms.data());
+            
+            std::cout << Ae_sc << std::endl;
+        }
+    }
+
+    template <typename T>
     void assemble_matrix(
         const std::function<int(std::int32_t, const std::int32_t *, std::int32_t,
                                 const std::int32_t *, const T *)> &mat_set,
@@ -48,37 +111,19 @@ namespace dolfinx_hdg::fem::impl
         const dolfinx::graph::AdjacencyList<std::int32_t>& dofs1 = dofmap1->list();
         const int bs1 = dofmap1->bs();
 
-        // FIXME This probably doesn't work properly
-        std::shared_ptr<const dolfinx::fem::FiniteElement> element0
-            = a.function_spaces().at(0)->element();
-        std::shared_ptr<const dolfinx::fem::FiniteElement> element1
-            = a.function_spaces().at(1)->element();
-        const std::function<void(const xtl::span<T>&,
-                                const xtl::span<const std::uint32_t>&, std::int32_t,
-                                int)>& dof_transform
-            = element0->get_dof_transformation_function<T>();
-        const std::function<void(const xtl::span<T>&,
-                                const xtl::span<const std::uint32_t>&, std::int32_t,
-                                int)>& dof_transform_to_transpose
-            = element1->get_dof_transformation_to_transpose_function<T>();
+        // TODO dof transformations and facet permutations
+        std::function<std::uint8_t(std::size_t)> get_perm =
+            [](std::size_t) { return 0; };
 
-        const bool needs_transformation_data
-            = element0->needs_dof_transformations()
-                or element1->needs_dof_transformations()
-                or a.needs_facet_permutations();
-        xtl::span<const std::uint32_t> cell_info;
-        if (needs_transformation_data)
-        {
-            mesh->topology_mutable().create_entity_permutations();
-            cell_info = xtl::span(mesh->topology().get_cell_permutation_info());
-        }
-
-        // FIXME Will this get the right integrals?
         for (int i : a.integral_ids(dolfinx::fem::IntegralType::cell))
         {
             const auto& fn = a.kernel(dolfinx::fem::IntegralType::cell, i);
             const std::vector<std::int32_t>& cells = a.cell_domains(i);
-            
+            const int tdim = mesh->topology().dim();
+            mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
+            impl::assemble_cells<T>(mat_set, *mesh, cells, dofs0, bs0,
+                                    dofs1, bs1, bc0, bc1, fn, coeffs,
+                                    cstride, constants, get_perm);
         }
 
         //     const int tdim = mesh->topology().dim();
