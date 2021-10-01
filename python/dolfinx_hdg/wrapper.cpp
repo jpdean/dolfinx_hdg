@@ -47,22 +47,22 @@ PYBIND11_MODULE(cpp, m)
         pybind11::arg("b"), pybind11::arg("L"),
         "Assemble linear form into an existing vector");
 
-    m.def(
-        "back_sub",
-        [](pybind11::array_t<PetscScalar, pybind11::array::c_style> x,
-           pybind11::array_t<PetscScalar, pybind11::array::c_style> xbar,
-           const std::vector<std::vector<std::shared_ptr<
-               const dolfinx::fem::Form<PetscScalar>>>> &a,
-           const std::vector<std::shared_ptr<
-               const dolfinx::fem::Form<PetscScalar>>> &L)
-        {
-            // FIXME xbar is constant. How do I pass it as a const?
-            dolfinx_hdg::sc::back_sub<PetscScalar>(
-                xtl::span(x.mutable_data(), x.size()),
-                xtl::span(xbar.mutable_data(), xbar.size()),
-                a, L);
-        },
-        pybind11::arg("x"), pybind11::arg("xbar"), pybind11::arg("a"),
-        pybind11::arg("L"),
-        "Perform backsubstitution");
+    // m.def(
+    //     "back_sub",
+    //     [](pybind11::array_t<PetscScalar, pybind11::array::c_style> x,
+    //        pybind11::array_t<PetscScalar, pybind11::array::c_style> xbar,
+    //        const std::vector<std::vector<std::shared_ptr<
+    //            const dolfinx::fem::Form<PetscScalar>>>> &a,
+    //        const std::vector<std::shared_ptr<
+    //            const dolfinx::fem::Form<PetscScalar>>> &L)
+    //     {
+    //         // FIXME xbar is constant. How do I pass it as a const?
+    //         dolfinx_hdg::sc::back_sub<PetscScalar>(
+    //             xtl::span(x.mutable_data(), x.size()),
+    //             xtl::span(xbar.mutable_data(), xbar.size()),
+    //             a, L);
+    //     },
+    //     pybind11::arg("x"), pybind11::arg("xbar"), pybind11::arg("a"),
+    //     pybind11::arg("L"),
+    //     "Perform backsubstitution");
 }

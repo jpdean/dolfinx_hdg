@@ -3,7 +3,6 @@
 #include <dolfinx/fem/Form.h>
 #include <functional>
 #include <xtl/xspan.hpp>
-#include <dolfinx/common/array2d.h>
 #include <dolfinx/fem/DirichletBC.h>
 #include <dolfinx/fem/utils.h>
 #include <iostream>
@@ -18,9 +17,9 @@ namespace dolfinx_hdg::fem
     void assemble_vector(xtl::span<T> b,
                          const dolfinx::fem::Form<PetscScalar> &L,
                          const xtl::span<const T> &constants,
-                         const dolfinx::array2d<T> &coeffs)
+                         const std::pair<xtl::span<const T>, int>& coeffs)
     {
-        impl::assemble_vector(b, L, constants, coeffs);
+        impl::assemble_vector(b, L, constants, coeffs.first, coeffs.second);
     }
 
     template <typename T>
@@ -32,9 +31,9 @@ namespace dolfinx_hdg::fem
         // are accessed incorrectly later
         const std::vector<T> constants =
             dolfinx::fem::pack_constants(L);
-        const dolfinx::array2d<T> coeffs =
+        const auto [coeffs, cstride] =
             dolfinx::fem::pack_coefficients(L);
-        assemble_vector(b, L, tcb::make_span(constants), coeffs);
+        assemble_vector(b, L, tcb::make_span(constants), {coeffs, cstride});
     }
 
     template <typename T>
@@ -43,7 +42,7 @@ namespace dolfinx_hdg::fem
                                 const std::int32_t *, const T *)> &mat_add,
         const dolfinx::fem::Form<T> &a,
         const xtl::span<const T> &constants,
-        const dolfinx::array2d<T> &coeffs,
+        const std::pair<xtl::span<const T>, int>& coeffs,
         const std::vector<
             std::shared_ptr<const dolfinx::fem::DirichletBC<T>>> &bcs)
     {
@@ -78,8 +77,8 @@ namespace dolfinx_hdg::fem
         }
 
         // Assemble
-        impl::assemble_matrix(mat_add, a, constants, coeffs, dof_marker0,
-                              dof_marker1);
+        impl::assemble_matrix(mat_add, a, constants, coeffs.first, coeffs.second,
+                              dof_marker0, dof_marker1);
     }
 
     template <typename T>
@@ -98,10 +97,11 @@ namespace dolfinx_hdg::fem
         // Prepare constants and coefficients
         const std::vector<T> constants =
             dolfinx::fem::pack_constants(a);
-        const dolfinx::array2d<T> coeffs =
+        const auto coeffs =
             dolfinx::fem::pack_coefficients(a);
 
         // Assemble
-        assemble_matrix(mat_add, a, tcb::make_span(constants), coeffs, bcs);
+        assemble_matrix(mat_add, a, tcb::make_span(constants),
+                        {coeffs.first, coeffs.second}, bcs);
     }
 }
