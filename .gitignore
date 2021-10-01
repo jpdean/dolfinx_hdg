@@ -1,2 +1,8 @@
 .vscode/
-cpp/build/*
+cpp/build/
+python/build/
+*.so
+*.h5
+*.xdmf
+*.egg-info
+*.pyc
