@@ -1,4 +1,3 @@
-from typing import Protocol
 import dolfinx
 import dolfinx_hdg.assemble
 from dolfinx import UnitSquareMesh, FunctionSpace, Function, DirichletBC
@@ -10,17 +9,28 @@ import numba
 from petsc4py import PETSc
 import ufl
 
+def create_facet_mesh(mesh):
+    x = mesh.geometry.x[:, :-1]
+    mesh.topology.create_connectivity(1, 0)
+    f_to_v = mesh.topology.connectivity(1, 0)
+    facets = f_to_v.array.reshape((-1, 2))
+
+    ufl_cell = ufl.Cell("interval", geometric_dimension=2)
+    ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", ufl_cell, 1))
+    facet_mesh = dolfinx.mesh.create_mesh(MPI.COMM_WORLD, facets, x, ufl_mesh)
+    ufl_mesh._ufl_cargo = facet_mesh
+    facet_mesh._ufl_domain = ufl_mesh
+
+    return facet_mesh
 
 def test_assemble_matrix():
     n = 1
     mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 
-    facet_dim = mesh.topology.dim - 1
-    # TODO Just pass list
-    facets = dolfinx.mesh.locate_entities(mesh, facet_dim, lambda x: x[0] >= -1)
-    mv = dolfinx.cpp.mesh.MeshView(mesh, facet_dim, facets)
+    # HACK Create a second mesh where the "facets"
+    facet_mesh = create_facet_mesh(mesh)
 
-    Vbar = dolfinx.FunctionSpace(mv, ("DG", 1))
+    Vbar = dolfinx.FunctionSpace(facet_mesh, ("DG", 1))
     Vbar_ele_space_dim = Vbar.dolfin_element().space_dimension()
     num_facets = mesh.ufl_cell().num_facets()
 
@@ -43,7 +53,7 @@ def test_assemble_matrix():
     integrals = {dolfinx.fem.IntegralType.cell:
                  ([(-1, tabulate_tensor.address)], None)}
     a = dolfinx.cpp.fem.Form(
-        [Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], False, None)
+        [Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], False, mesh)
     A = dolfinx_hdg.assemble.assemble_matrix(a)
     A.assemble()
 
@@ -65,30 +75,24 @@ def test_assemble_matrix():
                 
     assert(np.allclose(A[:, :], A_expected))
 
-    # facets = locate_entities_boundary(mesh, 1,
-    #                                   lambda x: np.logical_or(
-    #                                       np.logical_or(np.isclose(x[0], 0.0),
-    #                                                     np.isclose(x[0], 1.0)),
-    #                                       np.logical_or(np.isclose(x[1], 0.0),
-    #                                                     np.isclose(x[1], 1.0))))
-    # ubar0 = Function(Vbar)
-    # dofs = locate_dofs_topological(Vbar, 1, facets)
-    # bc = DirichletBC(ubar0, dofs)
-    # A = dolfinx_hdg.assemble.assemble_matrix(a, [bc])
-    # A.assemble()
+    facets = locate_entities_boundary(mesh, 1,
+                                      lambda x: np.logical_or(
+                                          np.logical_or(np.isclose(x[0], 0.0),
+                                                        np.isclose(x[0], 1.0)),
+                                          np.logical_or(np.isclose(x[1], 0.0),
+                                                        np.isclose(x[1], 1.0))))
+    dofs = locate_dofs_topological(Vbar, 1, facets)
+    ubar0 = Function(Vbar)
+    bc = DirichletBC(ubar0, dofs)
+    A = dolfinx_hdg.assemble.assemble_matrix(a, [bc])
+    A.assemble()
 
-    # A_exact = np.array([[1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    #                     [0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
-    #                     [0, 0, 2, 2, 0, 0, 0, 0, 0, 0],
-    #                     [0, 0, 2, 2, 0, 0, 0, 0, 0, 0],
-    #                     [0, 0, 0, 0, 1, 0, 0, 0, 0, 0],
-    #                     [0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
-    #                     [0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
-    #                     [0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
-    #                     [0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
-    #                     [0, 0, 0, 0, 0, 0, 0, 0, 0, 1]])
+    for dof in dofs:
+        A_expected[dof, :] = 0
+        A_expected[:, dof] = 0
+        A_expected[dof, dof] = 1
     
-    # assert(np.allclose(A[:, :], A_exact))
+    assert(np.allclose(A[:, :], A_expected))
 
 
 test_assemble_matrix()
