@@ -18,6 +18,7 @@
 #include <xtensor/xarray.hpp>
 #include <xtensor/xio.hpp> // To cout xtensor arrays
 #include <xtensor-blas/xlinalg.hpp>
+#include "assembler_helpers.h"
 
 namespace dolfinx_hdg::fem::impl
 {
@@ -63,19 +64,11 @@ namespace dolfinx_hdg::fem::impl
         
         for (auto cell : cells)
         {
-            // Get cell coordinates/geometry
-            auto x_dofs = x_dofmap.links(cell);
-            for (std::size_t i = 0; i < x_dofs.size(); ++i)
-            {
-                std::copy_n(xt::row(x_g, x_dofs[i]).begin(), 3,
-                            std::next(coordinate_dofs.begin(), 3 * i));
-            }
+            dolfinx_hdg::fem::impl_helpers::get_coordinate_dofs(
+                coordinate_dofs, cell, x_dofmap, x_g);
 
-            for (int local_f = 0; local_f < num_cell_facets; ++local_f)
-            {
-                cell_facet_perms[local_f] =
-                    get_perm(cell * num_cell_facets + local_f);
-            }
+            dolfinx_hdg::fem::impl_helpers::get_cell_facet_perms(
+                cell_facet_perms, cell, num_cell_facets, get_perm);
 
             std::fill(Ae_sc.begin(), Ae_sc.end(), 0);            
             kernel(Ae_sc.data(), coeffs.data() + cell * cstride, constants.data(),
