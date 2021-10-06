@@ -95,13 +95,14 @@ def test_assemble_matrix():
     assert(np.allclose(A[:, :], A_expected))
 
 
-test_assemble_matrix()
-
 def test_assemble_vector_facet():
     n = 1
     mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 
-    Vbar = FunctionSpace(mesh, ("DG", 1), codimension=1)
+    # HACK Create a second mesh where the "facets"
+    facet_mesh = create_facet_mesh(mesh)
+
+    Vbar = dolfinx.FunctionSpace(facet_mesh, ("DG", 1))
     Vbar_ele_space_dim = Vbar.dolfin_element().space_dimension()
     num_facets = mesh.ufl_cell().num_facets()
 
@@ -124,13 +125,18 @@ def test_assemble_vector_facet():
     integrals = {dolfinx.fem.IntegralType.cell:
                  ([(-1, tabulate_tensor.address)], None)}
     f = dolfinx.cpp.fem.Form(
-        [Vbar._cpp_object], integrals, [], [], False, None)
+        [Vbar._cpp_object], integrals, [], [], False, mesh)
     b = dolfinx_hdg.assemble.assemble_vector(f)
     b.assemble()
 
-    b_exact = np.array([1, 1, 2, 2, 1, 1, 1, 1, 1, 1,])
+    print(b[:])
 
-    assert(np.allclose(b[:], b_exact))
+    b_expected = np.array([1, 1, 2, 2, 1, 1, 1, 1, 1, 1,])
+
+    assert(np.allclose(b[:], b_expected))
+
+
+test_assemble_vector_facet()
 
 
 def test_assemble_vector_cell():
