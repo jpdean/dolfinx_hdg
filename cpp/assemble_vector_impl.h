@@ -31,38 +31,68 @@ namespace dolfinx_hdg::fem::impl
     template <typename T, int _bs = -1>
     void assemble_cells(
         xtl::span<T> b,
-        const dolfinx::mesh::Mesh& mesh,
-        const xtl::span<const std::int32_t>& cells,
-        const dolfinx::graph::AdjacencyList<std::int32_t>& dofmap, const int bs,
-        const std::function<void(T*, const T*, const T*, const double*, const int*,
-                                const std::uint8_t*)>& fn,
-        const xtl::span<const T>& constants, const xtl::span<const T>& coeffs,
+        const dolfinx::mesh::Mesh &mesh,
+        const xtl::span<const std::int32_t> &cells,
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap, const int bs,
+        const std::function<void(T *, const T *, const T *, const double *, const int *,
+                                 const std::uint8_t *)> &fn,
+        const xtl::span<const T> &constants, const xtl::span<const T> &coeffs,
         int cstride,
-        const std::function<std::uint8_t(std::size_t)>& get_perm)
+        const std::function<std::uint8_t(std::size_t)> &get_perm)
     {
         assert(_bs < 0 or _bs == bs);
 
         const int tdim = mesh.topology().dim();
 
         // Prepare cell geometry
-        const dolfinx::graph::AdjacencyList<std::int32_t>& x_dofmap =
+        const dolfinx::graph::AdjacencyList<std::int32_t> &x_dofmap =
             mesh.geometry().dofmap();
 
         // FIXME: Add proper interface for num coordinate dofs
         const std::size_t num_dofs_g = x_dofmap.num_links(0);
-        const xt::xtensor<double, 2>& x_g = mesh.geometry().x();
+        const xt::xtensor<double, 2> &x_g = mesh.geometry().x();
 
-        const int num_cell_facets
-            = dolfinx::mesh::cell_num_entities(mesh.topology().cell_type(), tdim - 1);
+        const int num_cell_facets = dolfinx::mesh::cell_num_entities(mesh.topology().cell_type(), tdim - 1);
 
         // FIXME: Add proper interface for num_dofs
         // Create data structures used in assembly
         const int num_dofs = dofmap.links(0).size();
         std::vector<double> coordinate_dofs(3 * num_dofs_g);
+        std::vector<std::uint8_t> cell_facet_perms(num_cell_facets);
+        auto c_to_f = mesh.topology().connectivity(tdim, tdim - 1);
+
         xt::xarray<T> be_sc = xt::zeros<T>({bs * num_dofs * num_cell_facets});
 
         for (auto cell : cells)
         {
+            dolfinx_hdg::fem::impl_helpers::get_coordinate_dofs(
+                coordinate_dofs, cell, x_dofmap, x_g);
+
+            dolfinx_hdg::fem::impl_helpers::get_cell_facet_perms(
+                cell_facet_perms, cell, num_cell_facets, get_perm);
+
+            std::fill(be_sc.begin(), be_sc.end(), 0);
+            fn(be_sc.data(), coeffs.data() + cell * cstride, constants.data(),
+               coordinate_dofs.data(), nullptr, cell_facet_perms.data());
+
+            auto cell_facets = c_to_f->links(cell);
+
+            for (int local_f = 0; local_f < num_cell_facets; ++local_f)
+            {
+                const int f = cell_facets[local_f];
+
+                auto dofs = dofmap.links(f);
+
+                // Vector corresponding to dofs of facets f
+                xt::xarray<double> be_sc_f =
+                    xt::view(be_sc,
+                             xt::range(local_f * bs * num_dofs,
+                                       (local_f + 1) * bs * num_dofs));
+
+                for (int i = 0; i < num_dofs; ++i)
+                    for (int k = 0; k < bs; ++k)
+                        b[bs * dofs[i] + k] += be_sc_f[bs * i + k];
+            }
         }
     }
 
