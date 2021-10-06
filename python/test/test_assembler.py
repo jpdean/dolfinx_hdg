@@ -133,51 +133,22 @@ def test_assemble_vector_facet():
 
     print(b[:])
 
-    b_expected = np.array([1, 1, 2, 2, 1, 1, 1, 1, 1, 1,])
+    # TODO Calculate rather than hardcode
+    b_expected = np.array([1, 1, 2, 2, 1, 1, 1, 1, 1, 1])
 
     assert(np.allclose(b[:], b_expected))
 
 
-def test_assemble_vector_cell():
+def test_backsub():
     n = 1
     mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 
-    V = FunctionSpace(mesh, ("DG", 1))
+    # HACK Create a second mesh where the "facets"
+    facet_mesh = create_facet_mesh(mesh)
+
+    V =dolfinx.FunctionSpace(mesh, ("DG", 1))
+    Vbar = dolfinx.FunctionSpace(facet_mesh, ("DG", 1))
     V_ele_space_dim = V.dolfin_element().space_dimension()
-
-    c_signature = numba.types.void(
-        numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
-        numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
-        numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
-        numba.types.CPointer(numba.types.double),
-        numba.types.CPointer(numba.types.int32),
-        numba.types.CPointer(numba.types.uint8))
-
-    @numba.cfunc(c_signature, nopython=True)
-    def tabulate_tensor(b_, w_, c_, coords_, entity_local_index,
-                        facet_permutations):
-        b = numba.carray(b_, (V_ele_space_dim),
-                         dtype=PETSc.ScalarType)
-
-        b += np.ones_like(b)
-
-    integrals = {dolfinx.fem.IntegralType.cell:
-                 ([(-1, tabulate_tensor.address)], None)}
-    f = dolfinx.cpp.fem.Form(
-        [V._cpp_object], integrals, [], [], False, None)
-    b = dolfinx.fem.assemble_vector(f)
-    b.assemble()
-
-    b_exact = np.array([1, 1, 1, 1, 1, 1])
-
-    assert(np.allclose(b[:], b_exact))
-
-
-def test_coeff():
-    n = 1
-    mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
-
-    Vbar = FunctionSpace(mesh, ("DG", 1), codimension=1)
     Vbar_ele_space_dim = Vbar.dolfin_element().space_dimension()
     num_facets = mesh.ufl_cell().num_facets()
 
@@ -195,19 +166,29 @@ def test_coeff():
     @numba.cfunc(c_signature, nopython=True)
     def tabulate_tensor(b_, w_, c_, coords_, entity_local_index,
                         facet_permutations):
-        b = numba.carray(b_, (num_facets * Vbar_ele_space_dim),
+        b = numba.carray(b_, (V_ele_space_dim),
                          dtype=PETSc.ScalarType)
         xbar = numba.carray(w_, (num_facets * Vbar_ele_space_dim),
                             dtype=PETSc.ScalarType)
-        b += xbar
+
+        # TODO Come up with better test
+        b[0] += 0.5 * (xbar[0] + xbar[1])
+        b[1] += 0.5 * (xbar[2] + xbar[3])
+        b[2] += 0.5 * (xbar[4] + xbar[5])
 
     integrals = {dolfinx.fem.IntegralType.cell:
                  ([(-1, tabulate_tensor.address)], None)}
     f = dolfinx.cpp.fem.Form(
-        [Vbar._cpp_object], integrals, [xbar._cpp_object], [], False, None)
-    b = dolfinx_hdg.assemble.assemble_vector(f)
+        [V._cpp_object], integrals, [], [], False, None)
+    # TODO Write function to pack this from xbar. This assume first order and n = 1
+    c = np.array([[1, 1, 1, 1, 1, 1],
+                  [1, 1, 1, 1, 1, 1]])
+    b = dolfinx.fem.assemble_vector(f, coeffs=(None, c))
     b.assemble()
 
-    b_exact = np.array([1, 1, 2, 2, 1, 1, 1, 1, 1, 1,])
+    print(b[:])
 
-    assert(np.allclose(b[:], b_exact))
+    # TODO Calculate rather than hardcode
+    b_expected = np.array([1, 1, 1, 1, 1, 1])
+
+    assert(np.allclose(b[:], b_expected))
