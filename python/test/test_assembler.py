@@ -9,6 +9,7 @@ import numba
 from petsc4py import PETSc
 import ufl
 
+
 def create_facet_mesh(mesh):
     x = mesh.geometry.x[:, :-1]
     mesh.topology.create_connectivity(1, 0)
@@ -22,6 +23,7 @@ def create_facet_mesh(mesh):
     facet_mesh._ufl_domain = ufl_mesh
 
     return facet_mesh
+
 
 def test_assemble_matrix():
     n = 1
@@ -136,15 +138,11 @@ def test_assemble_vector_facet():
     assert(np.allclose(b[:], b_expected))
 
 
-test_assemble_vector_facet()
-
-
 def test_assemble_vector_cell():
     n = 1
     mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 
     V = FunctionSpace(mesh, ("DG", 1))
-    Vbar = FunctionSpace(mesh, ("DG", 1), codimension=1)
     V_ele_space_dim = V.dolfin_element().space_dimension()
 
     c_signature = numba.types.void(
@@ -167,7 +165,7 @@ def test_assemble_vector_cell():
                  ([(-1, tabulate_tensor.address)], None)}
     f = dolfinx.cpp.fem.Form(
         [V._cpp_object], integrals, [], [], False, None)
-    b = dolfinx_hdg.assemble.assemble_vector(f)
+    b = dolfinx.fem.assemble_vector(f)
     b.assemble()
 
     b_exact = np.array([1, 1, 1, 1, 1, 1])
