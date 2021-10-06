@@ -40,7 +40,30 @@ namespace dolfinx_hdg::fem::impl
         int cstride,
         const std::function<std::uint8_t(std::size_t)>& get_perm)
     {
-        std::cout << "Hello\n";
+        assert(_bs < 0 or _bs == bs);
+
+        const int tdim = mesh.topology().dim();
+
+        // Prepare cell geometry
+        const dolfinx::graph::AdjacencyList<std::int32_t>& x_dofmap =
+            mesh.geometry().dofmap();
+
+        // FIXME: Add proper interface for num coordinate dofs
+        const std::size_t num_dofs_g = x_dofmap.num_links(0);
+        const xt::xtensor<double, 2>& x_g = mesh.geometry().x();
+
+        const int num_cell_facets
+            = dolfinx::mesh::cell_num_entities(mesh.topology().cell_type(), tdim - 1);
+
+        // FIXME: Add proper interface for num_dofs
+        // Create data structures used in assembly
+        const int num_dofs = dofmap.links(0).size();
+        std::vector<double> coordinate_dofs(3 * num_dofs_g);
+        xt::xarray<T> be_sc = xt::zeros<T>({bs * num_dofs * num_cell_facets});
+
+        for (auto cell : cells)
+        {
+        }
     }
 
     template <typename T>
