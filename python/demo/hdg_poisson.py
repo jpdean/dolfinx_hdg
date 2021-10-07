@@ -240,15 +240,13 @@ u_form = dolfinx.cpp.fem.Form(
 u = Function(V)
 dolfinx.fem.assemble_vector(u.vector, u_form, coeffs=(None, packed_ubar))
 
-print(u.vector[:])
+print("Compute error")
+e = u - u_e
+e_L2 = np.sqrt(mesh.mpi_comm().allreduce(
+    assemble_scalar(inner(e, e) * dx_c), op=MPI.SUM))
+print(f"L2-norm of error = {e_L2}")
 
-# print("Compute error")
-# e = u - u_e
-# e_L2 = np.sqrt(mesh.mpi_comm().allreduce(
-#     assemble_scalar(inner(e, e) * dx), op=MPI.SUM))
-# print(f"L2-norm of error = {e_L2}")
-
-# print("Write to file")
-# with XDMFFile(MPI.COMM_WORLD, "poisson.xdmf", "w") as file:
-#     file.write_mesh(mesh)
-#     file.write_function(u)
+print("Write to file")
+with XDMFFile(MPI.COMM_WORLD, "poisson.xdmf", "w") as file:
+    file.write_mesh(mesh)
+    file.write_function(u)
