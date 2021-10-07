@@ -216,16 +216,16 @@ b = dolfinx_hdg.assemble.assemble_vector(f)
 # FIXME apply_lifting not implemented in my facet space branch, so must use homogeneous BC
 set_bc(b, [bc_bar])
 
-print(b[:])
+print("Solve")
+solver = PETSc.KSP().create(mesh.mpi_comm())
+solver.setOperators(A)
+solver.setType("preonly")
+solver.getPC().setType("lu")
 
-# print("Solve")
-# solver = PETSc.KSP().create(mesh.mpi_comm())
-# solver.setOperators(A)
-# solver.setType("preonly")
-# solver.getPC().setType("lu")
+ubar = Function(Vbar)
+solver.solve(b, ubar.vector)
 
-# ubar = Function(Vbar)
-# solver.solve(b, ubar.vector)
+print(ubar.vector[:])
 
 # print("Back substitution")
 # u = Function(V)
