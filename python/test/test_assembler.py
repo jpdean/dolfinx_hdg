@@ -154,6 +154,7 @@ def test_backsub():
 
     xbar = Function(Vbar)
     xbar.vector.set(1)
+    c = dolfinx_hdg.assemble.pack_facet_space_coeffs_cellwise(xbar, mesh)
 
     c_signature = numba.types.void(
         numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
@@ -179,13 +180,9 @@ def test_backsub():
                  ([(-1, tabulate_tensor.address)], None)}
     f = dolfinx.cpp.fem.Form(
         [V._cpp_object], integrals, [], [], False, None)
-    # TODO Write function to pack this from xbar. This assume first order and n = 1
-    c = np.array([[1, 1, 1, 1, 1, 1],
-                  [1, 1, 1, 1, 1, 1]])
+
     b = dolfinx.fem.assemble_vector(f, coeffs=(None, c))
     b.assemble()
-
-    print(b[:])
 
     b_expected = np.array([1, 1, 1, 1, 1, 1])
 
