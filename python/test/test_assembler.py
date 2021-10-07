@@ -171,10 +171,9 @@ def test_backsub():
         xbar = numba.carray(w_, (num_facets * Vbar_ele_space_dim),
                             dtype=PETSc.ScalarType)
 
-        # TODO Come up with better test
-        b[0] += 0.5 * (xbar[0] + xbar[1])
-        b[1] += 0.5 * (xbar[2] + xbar[3])
-        b[2] += 0.5 * (xbar[4] + xbar[5])
+        for i in range(V_ele_space_dim):
+            for j in range(Vbar_ele_space_dim):
+                b[i] += 1 / Vbar_ele_space_dim * xbar[Vbar_ele_space_dim * i + j]
 
     integrals = {dolfinx.fem.IntegralType.cell:
                  ([(-1, tabulate_tensor.address)], None)}
@@ -188,7 +187,6 @@ def test_backsub():
 
     print(b[:])
 
-    # TODO Calculate rather than hardcode
     b_expected = np.array([1, 1, 1, 1, 1, 1])
 
     assert(np.allclose(b[:], b_expected))
