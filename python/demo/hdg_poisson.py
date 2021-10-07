@@ -237,11 +237,10 @@ integrals = {dolfinx.fem.IntegralType.cell:
 u_form = dolfinx.cpp.fem.Form(
     [V._cpp_object], integrals, [], [], False, None)
 
-# TODO Create function
-x = dolfinx.fem.assemble_vector(u_form, coeffs=(None, packed_ubar))
-x.assemble()
+u = Function(V)
+dolfinx.fem.assemble_vector(u.vector, u_form, coeffs=(None, packed_ubar))
 
-print(x[:])
+print(u.vector[:])
 
 # print("Compute error")
 # e = u - u_e
