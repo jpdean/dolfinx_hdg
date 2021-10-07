@@ -172,20 +172,23 @@ def tabulate_condensed_tensor_b(b_, w_, c_, coords_, entity_local_index,
     b -= A10 @ np.linalg.solve(A00, b0)
 
 
-# @numba.cfunc(c_signature, nopython=True)
-# def tabulate_x(x_, w_, c_, coords_, entity_local_index,
-#                facet_permutations):
-#     x = numba.carray(x_, (V_ele_space_dim), dtype=PETSc.ScalarType)
-#     xbar = numba.carray(w_, (num_facets * Vbar_ele_space_dim),
-#                         dtype=PETSc.ScalarType)
-#     # FIXME Don't need to pass w_ here. Pass null instead.
-#     A00, A10 = compute_A00_A10(w_, c_, coords_, entity_local_index,
-#                                facet_permutations)
-#     b0 = np.zeros((V_ele_space_dim), dtype=PETSc.ScalarType)
-#     # FIXME Pass nullptr for last two parameters
-#     kernel_f0(ffi.from_buffer(b0), w_, c_, coords_, entity_local_index,
-#               facet_permutations)
-#     x += np.linalg.solve(A00, b0 - A10.T @ xbar)
+@numba.cfunc(c_signature, nopython=True)
+def tabulate_x(x_, w_, c_, coords_, entity_local_index,
+               facet_permutations):
+    x = numba.carray(x_, (V_ele_space_dim), dtype=PETSc.ScalarType)
+    xbar = numba.carray(w_, (num_cell_facets * Vbar_ele_space_dim),
+                        dtype=PETSc.ScalarType)
+    # FIXME Don't need to pass w_ here. Pass null instead.
+    # FIXME dolfinx passes nullptr for facetpermutations for a cell
+    # integral. This is a HACK
+    perms = np.zeros((1), dtype=np.uint8)
+    A00, A10 = compute_A00_A10(w_, c_, coords_, entity_local_index,
+                               ffi.from_buffer(perms))
+    b0 = np.zeros((V_ele_space_dim), dtype=PETSc.ScalarType)
+    # FIXME Pass nullptr for last two parameters
+    kernel_f0(ffi.from_buffer(b0), w_, c_, coords_, entity_local_index,
+              facet_permutations)
+    x += np.linalg.solve(A00, b0 - A10.T @ xbar)
 
 
 print("Boundary conditions")
@@ -225,16 +228,20 @@ solver.getPC().setType("lu")
 ubar = Function(Vbar)
 solver.solve(b, ubar.vector)
 
-print(ubar.vector[:])
+print("Pack coefficients")
+packed_ubar = dolfinx_hdg.assemble.pack_facet_space_coeffs_cellwise(ubar, mesh)
 
-# print("Back substitution")
-# u = Function(V)
-# integrals = {dolfinx.fem.IntegralType.cell:
-#              ([(-1, tabulate_x.address)], None)}
-# u_form = dolfinx.cpp.fem.Form(
-#     [V._cpp_object], integrals, [ubar._cpp_object], [], False, None)
+print("Back substitution")
+integrals = {dolfinx.fem.IntegralType.cell:
+             ([(-1, tabulate_x.address)], None)}
+u_form = dolfinx.cpp.fem.Form(
+    [V._cpp_object], integrals, [], [], False, None)
 
-# dolfinx_hdg.assemble.assemble_vector(u.vector, u_form)
+# TODO Create function
+x = dolfinx.fem.assemble_vector(u_form, coeffs=(None, packed_ubar))
+x.assemble()
+
+print(x[:])
 
 # print("Compute error")
 # e = u - u_e
