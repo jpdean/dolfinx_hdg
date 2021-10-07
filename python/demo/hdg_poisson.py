@@ -156,20 +156,20 @@ def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
     A -= A10 @ np.linalg.solve(A00, A10.T)
 
 
-# @numba.cfunc(c_signature, nopython=True)
-# def tabulate_condensed_tensor_b(b_, w_, c_, coords_, entity_local_index,
-#                                 facet_permutations):
-#     b = numba.carray(b_, (num_facets * Vbar_ele_space_dim),
-#                      dtype=PETSc.ScalarType)
+@numba.cfunc(c_signature, nopython=True)
+def tabulate_condensed_tensor_b(b_, w_, c_, coords_, entity_local_index,
+                                facet_permutations):
+    b = numba.carray(b_, (num_cell_facets * Vbar_ele_space_dim),
+                     dtype=PETSc.ScalarType)
 
-#     b0 = np.zeros((V_ele_space_dim), dtype=PETSc.ScalarType)
-#     # TODO Pass nullptr for last two parameters
-#     kernel_f0(ffi.from_buffer(b0), w_, c_, coords_, entity_local_index,
-#               facet_permutations)
+    b0 = np.zeros((V_ele_space_dim), dtype=PETSc.ScalarType)
+    # TODO Pass nullptr for last two parameters
+    kernel_f0(ffi.from_buffer(b0), w_, c_, coords_, entity_local_index,
+              facet_permutations)
 
-#     A00, A10 = compute_A00_A10(w_, c_, coords_, entity_local_index,
-#                                facet_permutations)
-#     b -= A10 @ np.linalg.solve(A00, b0)
+    A00, A10 = compute_A00_A10(w_, c_, coords_, entity_local_index,
+                               facet_permutations)
+    b -= A10 @ np.linalg.solve(A00, b0)
 
 
 # @numba.cfunc(c_signature, nopython=True)
@@ -207,16 +207,16 @@ A.assemble()
 dolfinx.fem.assemble_matrix(A, a11, [bc_bar])
 A.assemble()
 
-print(A[:, :])
+print("Assemble RHS")
+integrals = {dolfinx.fem.IntegralType.cell:
+             ([(-1, tabulate_condensed_tensor_b.address)], None)}
+f = dolfinx.cpp.fem.Form(
+    [Vbar._cpp_object], integrals, [], [], False, mesh)
+b = dolfinx_hdg.assemble.assemble_vector(f)
+# FIXME apply_lifting not implemented in my facet space branch, so must use homogeneous BC
+set_bc(b, [bc_bar])
 
-# print("Assemble RHS")
-# integrals = {dolfinx.fem.IntegralType.cell:
-#              ([(-1, tabulate_condensed_tensor_b.address)], None)}
-# f = dolfinx.cpp.fem.Form(
-#     [Vbar._cpp_object], integrals, [], [], False, None)
-# b = dolfinx_hdg.assemble.assemble_vector(f)
-# # FIXME apply_lifting not implemented in my facet space branch, so must use homogeneous BC
-# set_bc(b, [bc_bar])
+print(b[:])
 
 # print("Solve")
 # solver = PETSc.KSP().create(mesh.mpi_comm())
