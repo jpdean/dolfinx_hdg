@@ -26,7 +26,8 @@ namespace dolfinx_hdg::fem::impl
     void assemble_cells(
         const std::function<int(std::int32_t, const std::int32_t*, std::int32_t,
                                 const std::int32_t*, const T*)>& mat_set,
-        const dolfinx::mesh::Mesh& mesh,
+        const dolfinx::mesh::Mesh& cell_mesh,
+        const dolfinx::mesh::Mesh& facet_mesh,
         const xtl::span<const std::int32_t>& cells,
         const dolfinx::graph::AdjacencyList<std::int32_t>& dofmap0, int bs0,
         const dolfinx::graph::AdjacencyList<std::int32_t>& dofmap1, int bs1,
@@ -37,18 +38,18 @@ namespace dolfinx_hdg::fem::impl
         const xtl::span<const T>& constants,
         const std::function<std::uint8_t(std::size_t)>& get_perm)
     {
-        const int tdim = mesh.topology().dim();
+        const int tdim = cell_mesh.topology().dim();
 
         // Prepare cell geometry
         const dolfinx::graph::AdjacencyList<std::int32_t>& x_dofmap =
-            mesh.geometry().dofmap();
+            cell_mesh.geometry().dofmap();
 
         // FIXME: Add proper interface for num coordinate dofs
         const std::size_t num_dofs_g = x_dofmap.num_links(0);
-        const xt::xtensor<double, 2>& x_g = mesh.geometry().x();
+        const xt::xtensor<double, 2>& x_g = cell_mesh.geometry().x();
 
         const int num_cell_facets
-            = dolfinx::mesh::cell_num_entities(mesh.topology().cell_type(), tdim - 1);
+            = dolfinx::mesh::cell_num_entities(cell_mesh.topology().cell_type(), tdim - 1);
         
         // Data structures used in assembly
         std::vector<double> coordinate_dofs(3 * num_dofs_g);
@@ -57,7 +58,7 @@ namespace dolfinx_hdg::fem::impl
         const int ndim0 = bs0 * num_dofs0;
         const int ndim1 = bs1 * num_dofs1;
         std::vector<std::uint8_t> cell_facet_perms(num_cell_facets);
-        auto c_to_f = mesh.topology().connectivity(tdim, tdim - 1);
+        auto c_to_f = cell_mesh.topology().connectivity(tdim, tdim - 1);
 
         xt::xarray<T> Ae_sc = xt::zeros<T>({ndim0 * num_cell_facets,
                                             ndim1 * num_cell_facets});
@@ -153,8 +154,13 @@ namespace dolfinx_hdg::fem::impl
         const std::vector<bool> &bc1)
     {
         // FIXME Vector elements (i.e. block size \neq 1) might break some of this
-        std::shared_ptr<const dolfinx::mesh::Mesh> mesh = a.mesh();
-        assert(mesh);
+        std::shared_ptr<const dolfinx::mesh::Mesh> cell_mesh = a.mesh();
+        assert(cell_mesh);
+        
+        // TODO Should probably check both facet meshes are the same in Form.h
+        std::shared_ptr<const dolfinx::mesh::Mesh> facet_mesh = 
+            a.function_spaces().at(0)->mesh();
+        assert(facet_mesh);
 
         // Get dofmap data
         std::shared_ptr<const dolfinx::fem::DofMap> dofmap0
@@ -176,9 +182,9 @@ namespace dolfinx_hdg::fem::impl
         {
             const auto& fn = a.kernel(dolfinx::fem::IntegralType::cell, i);
             const std::vector<std::int32_t>& cells = a.cell_domains(i);
-            const int tdim = mesh->topology().dim();
-            mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
-            impl::assemble_cells<T>(mat_set, *mesh, cells, dofs0, bs0,
+            const int tdim = cell_mesh->topology().dim();
+            cell_mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
+            impl::assemble_cells<T>(mat_set, *cell_mesh, *facet_mesh, cells, dofs0, bs0,
                                     dofs1, bs1, bc0, bc1, fn, coeffs,
                                     cstride, constants, get_perm);
         }
