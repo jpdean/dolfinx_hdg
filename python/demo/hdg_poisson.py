@@ -21,6 +21,9 @@ import ufl
 
 
 # HACK to create facet space
+# FIXME Creating the mesh seems to reorder the facets/geomety,
+# so facet i in mesh is not the same as facet i in facet_mesh
+# FIXME This might be confusing topology and geometry
 def create_facet_mesh(mesh):
     x = mesh.geometry.x[:, :-1]
     mesh.topology.create_connectivity(1, 0)
@@ -30,8 +33,6 @@ def create_facet_mesh(mesh):
     ufl_cell = ufl.Cell("interval", geometric_dimension=2)
     ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", ufl_cell, 1))
     facet_mesh = dolfinx.mesh.create_mesh(MPI.COMM_WORLD, facets, x, ufl_mesh)
-    ufl_mesh._ufl_cargo = facet_mesh
-    facet_mesh._ufl_domain = ufl_mesh
 
     return facet_mesh
 
