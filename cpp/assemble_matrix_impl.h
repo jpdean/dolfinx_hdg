@@ -76,10 +76,6 @@ namespace dolfinx_hdg::fem::impl
             dolfinx_hdg::fem::impl_helpers::get_coordinate_dofs(
                 coordinate_dofs, cell, cell_facets, x_dofmap, x_g, ent_to_geom);
             
-            std::cout << "cell = " << cell << "\n";
-            for (auto coord_dof : coordinate_dofs)
-                std::cout << coord_dof << "\n";
-            
             dolfinx_hdg::fem::impl_helpers::get_cell_facet_perms(
                 cell_facet_perms, cell, num_cell_facets, get_perm);
 
@@ -169,6 +165,7 @@ namespace dolfinx_hdg::fem::impl
 
         std::shared_ptr<const dolfinx::mesh::Mesh> facet_mesh =
             a.function_spaces().at(0)->mesh();
+        assert(facet_mesh);
 
         // Get dofmap data
         std::shared_ptr<const dolfinx::fem::DofMap> dofmap0
