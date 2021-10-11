@@ -2,14 +2,17 @@
 
 #include <dolfinx/graph/AdjacencyList.h>
 #include <xtensor/xtensor.hpp>
+#include <vector>
 
 namespace dolfinx_hdg::fem::impl_helpers
 {
     void get_coordinate_dofs(
-        std::vector<double> &coordinate_dofs,
+        std::vector<double>& coordinate_dofs,
         const std::int32_t cell,
+        const xtl::span<const int>& cell_facets,
         const dolfinx::graph::AdjacencyList<int32_t>& x_dofmap,
-        const xt::xtensor<double, 2>& x_g);
+        const xt::xtensor<double, 2>& x_g,
+        xt::xtensor<int32_t, 2> ent_to_geom);
 
     void get_cell_facet_perms(
         std::vector<std::uint8_t>& cell_facet_perms,

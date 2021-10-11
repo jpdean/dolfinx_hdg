@@ -48,11 +48,15 @@ namespace dolfinx_hdg::fem::impl
         const std::size_t num_dofs_g = x_dofmap.num_links(0);
         const xt::xtensor<double, 2>& x_g = cell_mesh.geometry().x();
 
+        // FIXME: Find better way to handle facet geom
+        const std::size_t facet_num_dofs_g =
+            facet_mesh.geometry().dofmap().num_links(0);
+
         const int num_cell_facets
             = dolfinx::mesh::cell_num_entities(cell_mesh.topology().cell_type(), tdim - 1);
         
         // Data structures used in assembly
-        std::vector<double> coordinate_dofs(3 * num_dofs_g);
+        std::vector<double> coordinate_dofs(3 * (num_dofs_g + num_cell_facets * facet_num_dofs_g));
         const int num_dofs0 = dofmap0.links(0).size();
         const int num_dofs1 = dofmap1.links(0).size();
         const int ndim0 = bs0 * num_dofs0;
@@ -65,17 +69,23 @@ namespace dolfinx_hdg::fem::impl
         
         for (auto cell : cells)
         {
+            auto cell_facets = c_to_f->links(cell);
+            auto ent_to_geom = dolfinx::mesh::entities_to_geometry(
+                cell_mesh, tdim - 1, cell_facets, false);
+	
             dolfinx_hdg::fem::impl_helpers::get_coordinate_dofs(
-                coordinate_dofs, cell, x_dofmap, x_g);
-
+                coordinate_dofs, cell, cell_facets, x_dofmap, x_g, ent_to_geom);
+            
+            std::cout << "cell = " << cell << "\n";
+            for (auto coord_dof : coordinate_dofs)
+                std::cout << coord_dof << "\n";
+            
             dolfinx_hdg::fem::impl_helpers::get_cell_facet_perms(
                 cell_facet_perms, cell, num_cell_facets, get_perm);
 
             std::fill(Ae_sc.begin(), Ae_sc.end(), 0);            
             kernel(Ae_sc.data(), coeffs.data() + cell * cstride, constants.data(),
                    coordinate_dofs.data(), nullptr, cell_facet_perms.data());
-            
-            auto cell_facets = c_to_f->links(cell);
 
             // Double loop over cell facets to assemble
             // FIXME Is there a better way?
@@ -156,11 +166,9 @@ namespace dolfinx_hdg::fem::impl
         // FIXME Vector elements (i.e. block size \neq 1) might break some of this
         std::shared_ptr<const dolfinx::mesh::Mesh> cell_mesh = a.mesh();
         assert(cell_mesh);
-        
-        // TODO Should probably check both facet meshes are the same in Form.h
-        std::shared_ptr<const dolfinx::mesh::Mesh> facet_mesh = 
+
+        std::shared_ptr<const dolfinx::mesh::Mesh> facet_mesh =
             a.function_spaces().at(0)->mesh();
-        assert(facet_mesh);
 
         // Get dofmap data
         std::shared_ptr<const dolfinx::fem::DofMap> dofmap0
