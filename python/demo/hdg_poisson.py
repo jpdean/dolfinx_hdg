@@ -87,12 +87,17 @@ f0 = inner(f, v) * dx_c
 
 print("Compile forms")
 # JIT compile individual blocks tabulation kernels
+# TODO See if there is an enum for cell and facet integral rather than using
+# integer
 ufc_form_a00, _, _ = dolfinx.jit.ffcx_jit(mesh.mpi_comm(), a00)
 kernel_a00_cell = ufc_form_a00.integrals(0)[0].tabulate_tensor
 kernel_a00_facet = ufc_form_a00.integrals(1)[0].tabulate_tensor
 
 ufc_form_a10, _, _ = dolfinx.jit.ffcx_jit(mesh.mpi_comm(), a10)
 kernel_a10 = ufc_form_a10.integrals(1)[0].tabulate_tensor
+
+ufc_form_a11, _, _ = dolfinx.jit.ffcx_jit(mesh.mpi_comm(), a11)
+kernel_a11 = ufc_form_a11.integrals(0)[0].tabulate_tensor
 
 ufc_form_f0, _, _ = dolfinx.jit.ffcx_jit(mesh.mpi_comm(), f0)
 kernel_f0 = ufc_form_f0.integrals(0)[0].tabulate_tensor
@@ -109,12 +114,23 @@ c_signature = numba.types.void(
 
 
 @numba.jit(nopython=True)
-def map_facet_cell(A_f, f):
+def map_A10_f_to_A10(A10_f, f):
     A = np.zeros((num_cell_facets * Vbar_ele_space_dim,
                   V_ele_space_dim), dtype=PETSc.ScalarType)
     start_row = f * Vbar_ele_space_dim
     end_row = f * Vbar_ele_space_dim + Vbar_ele_space_dim
-    A[start_row:end_row, :] += A_f[:, :]
+    A[start_row:end_row, :] += A10_f[:, :]
+    return A
+
+
+@numba.jit(nopython=True)
+def map_A11_f_to_A11(A11_f, f):
+    A = np.zeros((num_cell_facets * Vbar_ele_space_dim,
+                  num_cell_facets * Vbar_ele_space_dim,),
+                 dtype=PETSc.ScalarType)
+    start = f * Vbar_ele_space_dim
+    end = start + Vbar_ele_space_dim
+    A[start:end, start:end] += A11_f[:, :]
     return A
 
 
@@ -152,8 +168,19 @@ def compute_A_blocks(w_, c_, coords_, entity_local_index,
                    ffi.from_buffer(cell_coords),
                    ffi.from_buffer(facet),
                    ffi.from_buffer(facet_permutation))
-        A10 += map_facet_cell(A10_f, i)
-    return A00, A10
+        A10 += map_A10_f_to_A10(A10_f, i)
+
+        offset = 3 * (num_dofs_g + i * facet_num_dofs_g)
+        facet_coords = coords[offset:offset + 3 * facet_num_dofs_g]
+        A11_f = np.zeros((Vbar_ele_space_dim, Vbar_ele_space_dim),
+                         dtype=PETSc.ScalarType)
+        # FIXME Last two should be nullptr
+        kernel_a11(ffi.from_buffer(A11_f), w_, c_,
+                   ffi.from_buffer(facet_coords),
+                   entity_local_index,
+                   facet_permutations)
+        A11 += map_A11_f_to_A11(A11_f, i)
+    return A00, A10, A11
 
 
 @numba.cfunc(c_signature, nopython=True)
@@ -163,10 +190,10 @@ def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
                           num_cell_facets * Vbar_ele_space_dim),
                      dtype=PETSc.ScalarType)
 
-    A00, A10 = compute_A_blocks(w_, c_, coords_, entity_local_index,
-                                facet_permutations)
+    A00, A10, A11 = compute_A_blocks(w_, c_, coords_, entity_local_index,
+                                     facet_permutations)
 
-    A -= A10 @ np.linalg.solve(A00, A10.T)
+    A += A11 - A10 @ np.linalg.solve(A00, A10.T)
 
 
 # @numba.cfunc(c_signature, nopython=True)
