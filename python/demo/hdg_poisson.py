@@ -20,6 +20,10 @@ import cffi
 import ufl
 
 
+# Creating a facet mesh causes warnings about the same facet being
+# in more than two cells, so disable warning logs
+dolfinx.cpp.log.set_log_level(dolfinx.cpp.log.LogLevel.ERROR)
+
 # HACK to create facet space
 # FIXME Creating the mesh seems to reorder the facets/geomety,
 # so facet i in mesh is not the same as facet i in facet_mesh
@@ -40,7 +44,7 @@ def create_facet_mesh(mesh):
 np.set_printoptions(linewidth=200)
 
 print("Set up problem")
-n = 2
+n = 32
 mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 facet_mesh = create_facet_mesh(mesh)
 
@@ -296,3 +300,5 @@ print("Write to file")
 with XDMFFile(MPI.COMM_WORLD, "poisson.xdmf", "w") as file:
     file.write_mesh(mesh)
     file.write_function(u)
+
+print("Done")
