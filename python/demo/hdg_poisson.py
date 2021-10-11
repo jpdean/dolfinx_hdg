@@ -75,7 +75,7 @@ a00 = inner(grad(u), grad(v)) * dx_c - \
 a10 = inner(dot(grad(u), n) - gamma * u, vbar) * ds_c
 # # NOTE: This adds the boundary term twice, but it's OK here as we apply
 # # homogeneous Dirichlet BCs
-a11 = 2 * gamma * inner(ubar, vbar) * dx_f
+a11 = gamma * inner(ubar, vbar) * dx_f
 
 x = SpatialCoordinate(mesh)
 u_e = sin(pi * x[0]) * sin(pi * x[1])
