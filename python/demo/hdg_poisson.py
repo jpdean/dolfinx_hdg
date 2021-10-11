@@ -208,8 +208,6 @@ a = dolfinx.cpp.fem.Form(
     [Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], False, mesh)
 A = dolfinx_hdg.assemble.assemble_matrix(a, [bc_bar])
 A.assemble()
-dolfinx.fem.assemble_matrix(A, a11, [bc_bar])
-A.assemble()
 
 print("Assemble RHS")
 integrals = {dolfinx.fem.IntegralType.cell:
