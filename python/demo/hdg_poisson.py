@@ -135,7 +135,7 @@ def map_A11_f_to_A11(A11_f, f):
 
 
 @numba.jit(nopython=True)
-def compute_A_blocks(w_, c_, coords_, entity_local_index,
+def compute_A00_A10(w_, c_, coords_, entity_local_index,
                     facet_permutations):
     A00 = np.zeros((V_ele_space_dim, V_ele_space_dim), dtype=PETSc.ScalarType)
     # FIXME How do I pass a null pointer for the last two arguments here?
@@ -143,14 +143,6 @@ def compute_A_blocks(w_, c_, coords_, entity_local_index,
                     facet_permutations)
     A10 = np.zeros((num_cell_facets * Vbar_ele_space_dim,
                     V_ele_space_dim), dtype=PETSc.ScalarType)
-    A11 = np.zeros((num_cell_facets * Vbar_ele_space_dim,
-                    num_cell_facets * Vbar_ele_space_dim),
-                    dtype=PETSc.ScalarType)
-    coords = numba.carray(coords_,
-                          (3 * (num_dofs_g +
-                                num_cell_facets * facet_num_dofs_g)),
-                          dtype=PETSc.ScalarType)
-    cell_coords = coords[:3 * num_dofs_g]
 
     # FIXME Is there a neater way to do this?
     facet = np.zeros((1), dtype=np.int32)
@@ -158,18 +150,31 @@ def compute_A_blocks(w_, c_, coords_, entity_local_index,
     for i in range(num_cell_facets):
         facet[0] = i
         facet_permutation[0] = facet_permutations[i]
-        kernel_a00_facet(ffi.from_buffer(A00), w_, c_,
-                         ffi.from_buffer(cell_coords),
+        kernel_a00_facet(ffi.from_buffer(A00), w_, c_, coords_,
                          ffi.from_buffer(facet),
                          ffi.from_buffer(facet_permutation))
         A10_f = np.zeros((Vbar_ele_space_dim, V_ele_space_dim),
                          dtype=PETSc.ScalarType)
-        kernel_a10(ffi.from_buffer(A10_f), w_, c_,
-                   ffi.from_buffer(cell_coords),
+        kernel_a10(ffi.from_buffer(A10_f), w_, c_, coords_,
                    ffi.from_buffer(facet),
                    ffi.from_buffer(facet_permutation))
         A10 += map_A10_f_to_A10(A10_f, i)
+    return A00, A10
 
+
+@numba.jit(nopython=True)
+def compute_A11(w_, c_, coords_, entity_local_index,
+                facet_permutations):
+    # FIXME How do I pass a null pointer for the last two arguments here?
+    A11 = np.zeros((num_cell_facets * Vbar_ele_space_dim,
+                    num_cell_facets * Vbar_ele_space_dim),
+                    dtype=PETSc.ScalarType)
+    coords = numba.carray(coords_,
+                          (3 * (num_dofs_g +
+                                num_cell_facets * facet_num_dofs_g)),
+                          dtype=PETSc.ScalarType)
+
+    for i in range(num_cell_facets):
         offset = 3 * (num_dofs_g + i * facet_num_dofs_g)
         facet_coords = coords[offset:offset + 3 * facet_num_dofs_g]
         A11_f = np.zeros((Vbar_ele_space_dim, Vbar_ele_space_dim),
@@ -180,7 +185,7 @@ def compute_A_blocks(w_, c_, coords_, entity_local_index,
                    entity_local_index,
                    facet_permutations)
         A11 += map_A11_f_to_A11(A11_f, i)
-    return A00, A10, A11
+    return A11
 
 
 @numba.cfunc(c_signature, nopython=True)
@@ -190,8 +195,9 @@ def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
                           num_cell_facets * Vbar_ele_space_dim),
                      dtype=PETSc.ScalarType)
 
-    A00, A10, A11 = compute_A_blocks(w_, c_, coords_, entity_local_index,
+    A00, A10 = compute_A00_A10(w_, c_, coords_, entity_local_index,
                                      facet_permutations)
+    A11 = compute_A11(w_, c_, coords_, entity_local_index, facet_permutations)
 
     A += A11 - A10 @ np.linalg.solve(A00, A10.T)
 
@@ -207,8 +213,8 @@ def tabulate_condensed_tensor_b(b_, w_, c_, coords_, entity_local_index,
     kernel_f0(ffi.from_buffer(b0), w_, c_, coords_, entity_local_index,
               facet_permutations)
 
-    A00, A10, A11 = compute_A_blocks(w_, c_, coords_, entity_local_index,
-                                     facet_permutations)
+    A00, A10 = compute_A00_A10(w_, c_, coords_, entity_local_index,
+                               facet_permutations)
     b -= A10 @ np.linalg.solve(A00, b0)
 
 
