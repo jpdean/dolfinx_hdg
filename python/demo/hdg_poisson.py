@@ -40,7 +40,7 @@ def create_facet_mesh(mesh):
 np.set_printoptions(linewidth=200)
 
 print("Set up problem")
-n = 1
+n = 2
 mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 facet_mesh = create_facet_mesh(mesh)
 
@@ -256,8 +256,6 @@ a = dolfinx.cpp.fem.Form(
 A = dolfinx_hdg.assemble.assemble_matrix(a, [bc_bar])
 A.assemble()
 
-print(A[:, :])
-
 print("Assemble RHS")
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_b.address)], None)}
@@ -266,8 +264,6 @@ f = dolfinx.cpp.fem.Form(
 b = dolfinx_hdg.assemble.assemble_vector(f)
 # FIXME apply_lifting not implemented in my facet space branch, so must use homogeneous BC
 set_bc(b, [bc_bar])
-
-print(b[:])
 
 print("Solve")
 solver = PETSc.KSP().create(mesh.mpi_comm())
