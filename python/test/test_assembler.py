@@ -185,9 +185,14 @@ def test_assemble_vector(d):
     assert(np.allclose(b[:], b_expected))
 
 
-def test_backsub():
-    n = 1
-    mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
+@pytest.mark.parametrize("d", [2, 3])
+def test_backsub(d):
+    n = 2
+    if d == 2:
+        mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
+    else:
+        assert(d == 3)
+        mesh = UnitCubeMesh(MPI.COMM_WORLD, n, n, n)
 
     # HACK Create a second mesh where the "facets"
     facet_mesh = create_facet_mesh(mesh)
@@ -230,6 +235,6 @@ def test_backsub():
     b = dolfinx.fem.assemble_vector(f, coeffs=(None, c))
     b.assemble()
 
-    b_expected = np.array([1, 1, 1, 1, 1, 1])
+    b_expected = np.ones_like(b[:])
 
     assert(np.allclose(b[:], b_expected))
