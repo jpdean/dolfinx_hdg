@@ -1,99 +1,199 @@
-from dolfinx import UnitSquareMesh, FunctionSpace, Function, DirichletBC
+import dolfinx
+import dolfinx_hdg.assemble
+from dolfinx import UnitSquareMesh, UnitCubeMesh, FunctionSpace, Function, DirichletBC
 from mpi4py import MPI
-from ufl import (TrialFunction, TestFunction, inner, dx, ds, FacetNormal,
-                 grad, dot)
-from dolfinx_hdg.assemble import assemble_matrix, assemble_vector
 import numpy as np
 from dolfinx.fem import locate_dofs_topological
 from dolfinx.mesh import locate_entities_boundary
+import numba
+from petsc4py import PETSc
+import ufl
 
 
-def test_assembler():
+# HACK to create facet space
+# FIXME Creating the mesh seems to reorder the facets/geomety,
+# so facet i in mesh is not the same as facet i in facet_mesh
+# FIXME This might be confusing topology and geometry
+def create_facet_mesh(mesh):
+    tdim = mesh.topology.dim
+
+    if tdim == 2:
+        x = mesh.geometry.x[:, :-1]
+    else:
+        assert(tdim == 3)
+        x = mesh.geometry.x
+    mesh.topology.create_connectivity(tdim - 1, 0)
+    f_to_v = mesh.topology.connectivity(tdim - 1, 0)
+
+    # HACK This only works because in d-dimensional simplices have d vertices
+    facets = f_to_v.array.reshape((-1, tdim))
+
+    facet_cell = mesh.ufl_cell().facet_cell()
+    ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", facet_cell, 1))
+    facet_mesh = dolfinx.mesh.create_mesh(MPI.COMM_WORLD, facets, x, ufl_mesh)
+
+    return facet_mesh
+
+
+def test_assemble_matrix():
     n = 1
     mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 
-    V = FunctionSpace(mesh, ("DG", 1))
-    Vbar = FunctionSpace(mesh, ("DG", 1), codimension=1)
+    # HACK Create a second mesh where the "facets"
+    facet_mesh = create_facet_mesh(mesh)
 
-    u = TrialFunction(V)
-    v = TestFunction(V)
-    ubar = TrialFunction(Vbar)
-    vbar = TestFunction(Vbar)
+    Vbar = dolfinx.FunctionSpace(facet_mesh, ("DG", 1))
+    Vbar_ele_space_dim = Vbar.dolfin_element().space_dimension()
+    num_facets = mesh.ufl_cell().num_facets()
 
-    h = 1 / n  # TODO Use CellDiameter
-    gamma = 10.0 / h  # TODO Add dependence on order of polynomials
-    n = FacetNormal(mesh)
+    c_signature = numba.types.void(
+        numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
+        numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
+        numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
+        numba.types.CPointer(numba.types.double),
+        numba.types.CPointer(numba.types.int32),
+        numba.types.CPointer(numba.types.uint8))
 
-    # TODO Check this
-    a00 = inner(grad(u), grad(v)) * dx - \
-        (inner(u, dot(grad(v), n)) * ds + inner(v, dot(grad(u), n)) * ds) + \
-        gamma * inner(u, v) * ds
-    a10 = inner(dot(grad(u), n) - gamma * u, vbar) * ds
-    a01 = inner(dot(grad(v), n) - gamma * v, ubar) * ds
-    a11 = gamma * inner(ubar, vbar) * dx
+    @numba.cfunc(c_signature, nopython=True)
+    def tabulate_tensor(A_, w_, c_, coords_, entity_local_index,
+                        facet_permutations):
+        A = numba.carray(A_, (num_facets * Vbar_ele_space_dim,
+                              num_facets * Vbar_ele_space_dim),
+                         dtype=PETSc.ScalarType)
+        A += np.ones_like(A)
 
-    a = [[a00, a01],
-         [a10, a11]]
-
-    A = assemble_matrix(a)
+    integrals = {dolfinx.fem.IntegralType.cell:
+                 ([(-1, tabulate_tensor.address)], None)}
+    a = dolfinx.cpp.fem.Form(
+        [Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], False, mesh)
+    A = dolfinx_hdg.assemble.assemble_matrix(a)
     A.assemble()
 
-    # TODO Check
-    A_exact = np.array([[1.79537094, 0.76490088, -1.79537094, -0.50870952, 0, 0, -0.26490088, 0.00870952, 0, 0],
-                        [0.76490088, 1.78554742, -0.76490088, -0.23509912,
-                            0, 0, -1.28554742, -0.26490088, 0, 0],
-                        [-1.79537094, -0.76490088, 4.59074187, 2.01741905, -1.79537094, -
-                            0.76490088, -0.23509912, -0.50870952, -0.23509912, -0.50870952],
-                        [-0.50870952, -0.23509912, 2.01741905, 4.59074187, -0.50870952, -
-                            0.23509912, -0.76490088, -1.79537094, -0.76490088, -1.79537094],
-                        [0, 0, -1.79537094, -0.50870952, 1.79537094,
-                            0.76490088, 0, 0, -0.26490088, 0.00870952],
-                        [0, 0, -0.76490088, -0.23509912, 0.76490088,
-                            1.78554742, 0, 0, -1.28554742, -0.26490088],
-                        [-0.26490088, -1.28554742, -0.23509912, -0.76490088,
-                            0, 0, 1.78554742, 0.76490088, 0, 0.],
-                        [0.00870952, -0.26490088, -0.50870952, -
-                            1.79537094, 0, 0, 0.76490088, 1.79537094, 0, 0],
-                        [0, 0, -0.23509912, -0.76490088, -0.26490088, -
-                            1.28554742, 0, 0, 1.78554742, 0.76490088],
-                        [0, 0, -0.50870952, -1.79537094, 0.00870952, -0.26490088, 0, 0, 0.76490088, 1.79537094]])
+    A_expected = np.zeros_like(A[:, :])
+    tdim = mesh.topology.dim
+    mesh.topology.create_connectivity(tdim, tdim - 1)
+    c_to_f = mesh.topology.connectivity(tdim, tdim -1)
+    for cell in range(c_to_f.num_nodes):
+        facets = c_to_f.links(cell)
+        for facet_i in facets:
+            for facet_j in facets:
+                dofs_i = Vbar.dofmap.list.links(facet_i)
+                dofs_j = Vbar.dofmap.list.links(facet_j)
+                # FIXME Use numpy slices rather than so many
+                # for loops
+                for dof_i in dofs_i:
+                    for dof_j in dofs_j:
+                        A_expected[dof_i, dof_j] += 1
+                
+    assert(np.allclose(A[:, :], A_expected))
 
-    assert(np.allclose(A[:, :], A_exact))
-
-    # Boundary conditions
     facets = locate_entities_boundary(mesh, 1,
-                                      lambda x: np.logical_or(np.logical_or(np.isclose(x[0], 0.0), np.isclose(x[0], 1.0)),
-                                                              np.logical_or(np.isclose(x[1], 0.0), np.isclose(x[1], 1.0))))
+                                      lambda x: np.logical_or(
+                                          np.logical_or(np.isclose(x[0], 0.0),
+                                                        np.isclose(x[0], 1.0)),
+                                          np.logical_or(np.isclose(x[1], 0.0),
+                                                        np.isclose(x[1], 1.0))))
+    dofs = locate_dofs_topological(Vbar, 1, facets)
     ubar0 = Function(Vbar)
-    dofs_bar = locate_dofs_topological(Vbar, 1, facets)
-    bc_bar = DirichletBC(ubar0, dofs_bar)
-
-    A = assemble_matrix(a, [bc_bar])
+    bc = DirichletBC(ubar0, dofs)
+    A = dolfinx_hdg.assemble.assemble_matrix(a, [bc])
     A.assemble()
 
-    A_exact = np.array([[1, 0, 0,          0,          0, 0, 0, 0, 0, 0],
-                        [0, 1, 0,          0,          0, 0, 0, 0, 0, 0],
-                        [0, 0, 4.59074187, 2.01741905, 0, 0, 0, 0, 0, 0],
-                        [0, 0, 2.01741905, 4.59074187, 0, 0, 0, 0, 0, 0],
-                        [0, 0, 0,          0,          1, 0, 0, 0, 0, 0],
-                        [0, 0, 0,          0,          0, 1, 0, 0, 0, 0],
-                        [0, 0, 0,          0,          0, 0, 1, 0, 0, 0],
-                        [0, 0, 0,          0,          0, 0, 0, 1, 0, 0],
-                        [0, 0, 0,          0,          0, 0, 0, 0, 1, 0],
-                        [0, 0, 0,          0,          0, 0, 0, 0, 0, 1]])
+    for dof in dofs:
+        A_expected[dof, :] = 0
+        A_expected[:, dof] = 0
+        A_expected[dof, dof] = 1
+    
+    assert(np.allclose(A[:, :], A_expected))
 
-    assert(np.allclose(A[:, :], A_exact))
 
-    f0 = inner(1, v) * dx
-    f1 = inner(1e-16, vbar) * dx
+def test_assemble_vector_facet():
+    n = 1
+    mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 
-    f = [f0,
-         f1]
+    # HACK Create a second mesh where the "facets"
+    facet_mesh = create_facet_mesh(mesh)
 
-    b = assemble_vector(f, a)
+    Vbar = dolfinx.FunctionSpace(facet_mesh, ("DG", 1))
+    Vbar_ele_space_dim = Vbar.dolfin_element().space_dimension()
+    num_facets = mesh.ufl_cell().num_facets()
 
-    # TODO Check this
-    b_exact = [0.07102385, 0.08333333, 0.19128563, 0.19128563, 0.07102385,
-               0.08333333, 0.08333333, 0.07102385, 0.08333333, 0.07102385]
+    c_signature = numba.types.void(
+        numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
+        numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
+        numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
+        numba.types.CPointer(numba.types.double),
+        numba.types.CPointer(numba.types.int32),
+        numba.types.CPointer(numba.types.uint8))
 
-    assert(np.allclose(b[:], b_exact))
+    @numba.cfunc(c_signature, nopython=True)
+    def tabulate_tensor(b_, w_, c_, coords_, entity_local_index,
+                        facet_permutations):
+        b = numba.carray(b_, (num_facets * Vbar_ele_space_dim),
+                         dtype=PETSc.ScalarType)
+
+        b += np.ones_like(b)
+
+    integrals = {dolfinx.fem.IntegralType.cell:
+                 ([(-1, tabulate_tensor.address)], None)}
+    f = dolfinx.cpp.fem.Form(
+        [Vbar._cpp_object], integrals, [], [], False, mesh)
+    b = dolfinx_hdg.assemble.assemble_vector(f)
+    b.assemble()
+
+    print(b[:])
+
+    # TODO Calculate rather than hardcode
+    b_expected = np.array([1, 1, 2, 2, 1, 1, 1, 1, 1, 1])
+
+    assert(np.allclose(b[:], b_expected))
+
+
+def test_backsub():
+    n = 1
+    mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
+
+    # HACK Create a second mesh where the "facets"
+    facet_mesh = create_facet_mesh(mesh)
+
+    V =dolfinx.FunctionSpace(mesh, ("DG", 1))
+    Vbar = dolfinx.FunctionSpace(facet_mesh, ("DG", 1))
+    V_ele_space_dim = V.dolfin_element().space_dimension()
+    Vbar_ele_space_dim = Vbar.dolfin_element().space_dimension()
+    num_facets = mesh.ufl_cell().num_facets()
+
+    xbar = Function(Vbar)
+    xbar.vector.set(1)
+    c = dolfinx_hdg.assemble.pack_facet_space_coeffs_cellwise(xbar, mesh)
+
+    c_signature = numba.types.void(
+        numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
+        numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
+        numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
+        numba.types.CPointer(numba.types.double),
+        numba.types.CPointer(numba.types.int32),
+        numba.types.CPointer(numba.types.uint8))
+
+    @numba.cfunc(c_signature, nopython=True)
+    def tabulate_tensor(b_, w_, c_, coords_, entity_local_index,
+                        facet_permutations):
+        b = numba.carray(b_, (V_ele_space_dim),
+                         dtype=PETSc.ScalarType)
+        xbar = numba.carray(w_, (num_facets * Vbar_ele_space_dim),
+                            dtype=PETSc.ScalarType)
+
+        for i in range(V_ele_space_dim):
+            for j in range(Vbar_ele_space_dim):
+                b[i] += 1 / Vbar_ele_space_dim * xbar[Vbar_ele_space_dim * i + j]
+
+    integrals = {dolfinx.fem.IntegralType.cell:
+                 ([(-1, tabulate_tensor.address)], None)}
+    f = dolfinx.cpp.fem.Form(
+        [V._cpp_object], integrals, [], [], False, None)
+
+    b = dolfinx.fem.assemble_vector(f, coeffs=(None, c))
+    b.assemble()
+
+    b_expected = np.array([1, 1, 1, 1, 1, 1])
+
+    assert(np.allclose(b[:], b_expected))

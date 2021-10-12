@@ -18,6 +18,7 @@ add_library(${PROJECT_NAME}
         petsc.h petsc.cpp
         assemble_matrix_impl.h
         assemble_vector_impl.h
+        assembler_helpers.h assembler_helpers.cpp
         static_condensation_helpers.h
         static_condensation_helpers.cpp)
 
@@ -41,6 +42,7 @@ install(FILES
         petsc.h
         assemble_matrix_impl.h
         assemble_vector_impl.h
+        assembler_helpers.h
         static_condensation_helpers.h
         DESTINATION include/${PROJECT_NAME})
 
