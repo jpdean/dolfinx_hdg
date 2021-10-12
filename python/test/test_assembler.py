@@ -115,7 +115,7 @@ def test_assemble_matrix(d):
 
 
 def test_assemble_vector_facet():
-    n = 1
+    n = 2
     mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 
     # HACK Create a second mesh where the "facets"
@@ -148,10 +148,18 @@ def test_assemble_vector_facet():
     b = dolfinx_hdg.assemble.assemble_vector(f)
     b.assemble()
 
-    print(b[:])
-
-    # TODO Calculate rather than hardcode
-    b_expected = np.array([1, 1, 2, 2, 1, 1, 1, 1, 1, 1])
+    b_expected = np.zeros_like(b[:])
+    tdim = mesh.topology.dim
+    mesh.topology.create_connectivity(tdim, tdim - 1)
+    c_to_f = mesh.topology.connectivity(tdim, tdim - 1)
+    for cell in range(c_to_f.num_nodes):
+        facets = c_to_f.links(cell)
+        for facet in facets:
+            dofs = Vbar.dofmap.list.links(facet)
+            # FIXME Use numpy slices rather than so many
+            # for loops
+            for dof in dofs:
+                b_expected[dof] += 1
 
     assert(np.allclose(b[:], b_expected))
 
