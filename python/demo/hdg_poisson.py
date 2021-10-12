@@ -2,7 +2,7 @@
 # null
 
 import dolfinx
-from dolfinx import UnitSquareMesh, FunctionSpace, Function, DirichletBC
+from dolfinx import UnitSquareMesh, UnitCubeMesh, FunctionSpace, Function, DirichletBC
 from dolfinx.fem import assemble_scalar
 from mpi4py import MPI
 from ufl import (TrialFunction, TestFunction, inner, FacetNormal,
@@ -29,13 +29,21 @@ dolfinx.cpp.log.set_log_level(dolfinx.cpp.log.LogLevel.ERROR)
 # so facet i in mesh is not the same as facet i in facet_mesh
 # FIXME This might be confusing topology and geometry
 def create_facet_mesh(mesh):
-    x = mesh.geometry.x[:, :-1]
-    mesh.topology.create_connectivity(1, 0)
-    f_to_v = mesh.topology.connectivity(1, 0)
-    facets = f_to_v.array.reshape((-1, 2))
+    tdim = mesh.topology.dim
 
-    ufl_cell = ufl.Cell("interval", geometric_dimension=2)
-    ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", ufl_cell, 1))
+    if tdim == 2:
+        x = mesh.geometry.x[:, :-1]
+    else:
+        assert(tdim == 3)
+        x = mesh.geometry.x
+    mesh.topology.create_connectivity(tdim - 1, 0)
+    f_to_v = mesh.topology.connectivity(tdim - 1, 0)
+
+    # HACK This only works because in d-dimensional simplices have d vertices
+    facets = f_to_v.array.reshape((-1, tdim))
+
+    facet_cell = mesh.ufl_cell().facet_cell()
+    ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", facet_cell, 1))
     facet_mesh = dolfinx.mesh.create_mesh(MPI.COMM_WORLD, facets, x, ufl_mesh)
 
     return facet_mesh
@@ -44,11 +52,12 @@ def create_facet_mesh(mesh):
 np.set_printoptions(linewidth=200)
 
 print("Set up problem")
-n = 32
+n = 4
 mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
+# mesh = UnitCubeMesh(MPI.COMM_WORLD, n, n, n)
 facet_mesh = create_facet_mesh(mesh)
 
-k = 1
+k = 2
 V = FunctionSpace(mesh, ("DG", k))
 Vbar = FunctionSpace(facet_mesh, ("DG", k))
 
@@ -84,7 +93,10 @@ a10 = inner(dot(grad(u), n) - gamma * u, vbar) * ds_c
 a11 = gamma * inner(ubar, vbar) * dx_f
 
 x = SpatialCoordinate(mesh)
-u_e = sin(pi * x[0]) * sin(pi * x[1])
+tdim = mesh.topology.dim
+u_e = 1
+for i in range(tdim):
+    u_e *= sin(pi * x[i])
 f = - div(grad(u_e))
 
 f0 = inner(f, v) * dx_c
@@ -241,15 +253,26 @@ def tabulate_x(x_, w_, c_, coords_, entity_local_index,
     x += np.linalg.solve(A00, b0 - A10.T @ xbar)
 
 
-print("Boundary conditions")
 # Boundary conditions
+print("Boundary conditions")
+
+
+def boundary(x):
+    lr = np.logical_or(np.isclose(x[0], 0.0), np.isclose(x[0], 1.0))
+    tb = np.logical_or(np.isclose(x[1], 0.0), np.isclose(x[1], 1.0))
+    lrtb = np.logical_or(lr, tb)
+    if tdim == 2:
+        return lrtb
+    else:
+        fb = np.logical_or(np.isclose(x[2], 0.0), np.isclose(x[2], 1.0))
+        return np.logical_or(lrtb, fb)
+
+
 # FIXME Since mesh and facet mesh don't agree on the facets, check this is
 # locating the correct dofs
-facets = locate_entities_boundary(mesh, 1,
-                                  lambda x: np.logical_or(np.logical_or(np.isclose(x[0], 0.0), np.isclose(x[0], 1.0)),
-                                                          np.logical_or(np.isclose(x[1], 0.0), np.isclose(x[1], 1.0))))
+facets = locate_entities_boundary(mesh, tdim - 1, boundary)
 ubar0 = Function(Vbar)
-dofs_bar = locate_dofs_topological(Vbar, 1, facets)
+dofs_bar = locate_dofs_topological(Vbar, tdim - 1, facets)
 bc_bar = DirichletBC(ubar0, dofs_bar)
 
 print("Assemble LSH")
