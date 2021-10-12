@@ -8,6 +8,7 @@ from dolfinx.mesh import locate_entities_boundary
 import numba
 from petsc4py import PETSc
 import ufl
+import pytest
 
 
 # HACK to create facet space
@@ -35,9 +36,14 @@ def create_facet_mesh(mesh):
     return facet_mesh
 
 
-def test_assemble_matrix():
-    n = 1
-    mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
+@pytest.mark.parametrize("d", [2, 3])
+def test_assemble_matrix(d):
+    n = 2
+    if d == 2:
+        mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
+    else:
+        assert(d == 3)
+        mesh = UnitCubeMesh(MPI.COMM_WORLD, n, n, n)
 
     # HACK Create a second mesh where the "facets"
     facet_mesh = create_facet_mesh(mesh)
