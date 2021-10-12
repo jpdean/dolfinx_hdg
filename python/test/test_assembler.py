@@ -9,6 +9,7 @@ import numba
 from petsc4py import PETSc
 import ufl
 import pytest
+from dolfinx.fem import set_bc
 
 
 # HACK to create facet space
@@ -113,7 +114,7 @@ def test_assemble_matrix(d):
     assert(np.allclose(A[:, :], A_expected))
 
 
-def test_assemble_vector_facet():
+def test_assemble_vector():
     n = 2
     mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 
@@ -160,6 +161,22 @@ def test_assemble_vector_facet():
             for dof in dofs:
                 b_expected[dof] += 1
 
+    assert(np.allclose(b[:], b_expected))
+
+    facets = locate_entities_boundary(mesh, tdim - 1,
+                                      lambda x: np.logical_or(
+                                          np.logical_or(np.isclose(x[0], 0.0),
+                                                        np.isclose(x[0], 1.0)),
+                                          np.logical_or(np.isclose(x[1], 0.0),
+                                                        np.isclose(x[1], 1.0))))
+    dofs = locate_dofs_topological(Vbar, tdim - 1, facets)
+    ubar0 = Function(Vbar)
+    bc = DirichletBC(ubar0, dofs)
+    set_bc(b, [bc])
+    
+    for dof in dofs:
+        b_expected[dof] = 0
+    
     assert(np.allclose(b[:], b_expected))
 
 
