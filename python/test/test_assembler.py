@@ -93,13 +93,14 @@ def test_assemble_matrix(d):
                 
     assert(np.allclose(A[:, :], A_expected))
 
-    facets = locate_entities_boundary(mesh, 1,
+    tdim = mesh.topology.dim
+    facets = locate_entities_boundary(mesh, tdim - 1,
                                       lambda x: np.logical_or(
                                           np.logical_or(np.isclose(x[0], 0.0),
                                                         np.isclose(x[0], 1.0)),
                                           np.logical_or(np.isclose(x[1], 0.0),
                                                         np.isclose(x[1], 1.0))))
-    dofs = locate_dofs_topological(Vbar, 1, facets)
+    dofs = locate_dofs_topological(Vbar, tdim - 1, facets)
     ubar0 = Function(Vbar)
     bc = DirichletBC(ubar0, dofs)
     A = dolfinx_hdg.assemble.assemble_matrix(a, [bc])
