@@ -1,6 +1,6 @@
 import dolfinx
 import dolfinx_hdg.assemble
-from dolfinx import UnitSquareMesh, FunctionSpace, Function, DirichletBC
+from dolfinx import UnitSquareMesh, UnitCubeMesh, FunctionSpace, Function, DirichletBC
 from mpi4py import MPI
 import numpy as np
 from dolfinx.fem import locate_dofs_topological
@@ -10,17 +10,27 @@ from petsc4py import PETSc
 import ufl
 
 
+# HACK to create facet space
+# FIXME Creating the mesh seems to reorder the facets/geomety,
+# so facet i in mesh is not the same as facet i in facet_mesh
+# FIXME This might be confusing topology and geometry
 def create_facet_mesh(mesh):
-    x = mesh.geometry.x[:, :-1]
-    mesh.topology.create_connectivity(1, 0)
-    f_to_v = mesh.topology.connectivity(1, 0)
-    facets = f_to_v.array.reshape((-1, 2))
+    tdim = mesh.topology.dim
 
-    ufl_cell = ufl.Cell("interval", geometric_dimension=2)
-    ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", ufl_cell, 1))
+    if tdim == 2:
+        x = mesh.geometry.x[:, :-1]
+    else:
+        assert(tdim == 3)
+        x = mesh.geometry.x
+    mesh.topology.create_connectivity(tdim - 1, 0)
+    f_to_v = mesh.topology.connectivity(tdim - 1, 0)
+
+    # HACK This only works because in d-dimensional simplices have d vertices
+    facets = f_to_v.array.reshape((-1, tdim))
+
+    facet_cell = mesh.ufl_cell().facet_cell()
+    ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", facet_cell, 1))
     facet_mesh = dolfinx.mesh.create_mesh(MPI.COMM_WORLD, facets, x, ufl_mesh)
-    ufl_mesh._ufl_cargo = facet_mesh
-    facet_mesh._ufl_domain = ufl_mesh
 
     return facet_mesh
 
