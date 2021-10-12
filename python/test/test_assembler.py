@@ -187,6 +187,8 @@ def test_assemble_vector(d):
 
 @pytest.mark.parametrize("d", [2, 3])
 def test_backsub(d):
+    # FIXME This test relies on first order lagrange simplex elements
+    # having the same number of dofs as facets. Generalize this
     n = 2
     if d == 2:
         mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
@@ -204,7 +206,7 @@ def test_backsub(d):
     num_facets = mesh.ufl_cell().num_facets()
 
     xbar = Function(Vbar)
-    xbar.vector.set(1)
+    xbar.vector[:] = np.arange(len(xbar.vector[:]))
     c = dolfinx_hdg.assemble.pack_facet_space_coeffs_cellwise(xbar, mesh)
 
     c_signature = numba.types.void(
@@ -223,9 +225,9 @@ def test_backsub(d):
         xbar = numba.carray(w_, (num_facets * Vbar_ele_space_dim),
                             dtype=PETSc.ScalarType)
 
-        for i in range(V_ele_space_dim):
+        for i in range(num_facets):
             for j in range(Vbar_ele_space_dim):
-                b[i] += 1 / Vbar_ele_space_dim * xbar[Vbar_ele_space_dim * i + j]
+                b[i] += xbar[Vbar_ele_space_dim * i + j]
 
     integrals = {dolfinx.fem.IntegralType.cell:
                  ([(-1, tabulate_tensor.address)], None)}
@@ -235,6 +237,16 @@ def test_backsub(d):
     b = dolfinx.fem.assemble_vector(f, coeffs=(None, c))
     b.assemble()
 
-    b_expected = np.ones_like(b[:])
+    b_expected = np.zeros_like(b[:])
+    tdim = mesh.topology.dim
+    mesh.topology.create_connectivity(tdim, tdim - 1)
+    c_to_f = mesh.topology.connectivity(tdim, tdim - 1)
+    for cell in range(c_to_f.num_nodes):
+        dofs = V.dofmap.list.links(cell)
+        facets = c_to_f.links(cell)
+        for local_facet in range(num_facets):
+            facet_dofs = Vbar.dofmap.list.links(facets[local_facet])
+            for facet_dof in facet_dofs:
+                b_expected[dofs[local_facet]] += xbar.vector[facet_dof]
 
     assert(np.allclose(b[:], b_expected))
