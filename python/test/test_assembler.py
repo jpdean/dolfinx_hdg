@@ -93,7 +93,6 @@ def test_assemble_matrix(d):
                 
     assert(np.allclose(A[:, :], A_expected))
 
-    tdim = mesh.topology.dim
     facets = locate_entities_boundary(mesh, tdim - 1,
                                       lambda x: np.logical_or(
                                           np.logical_or(np.isclose(x[0], 0.0),
