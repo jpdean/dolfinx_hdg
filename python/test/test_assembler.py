@@ -114,9 +114,14 @@ def test_assemble_matrix(d):
     assert(np.allclose(A[:, :], A_expected))
 
 
-def test_assemble_vector():
+@pytest.mark.parametrize("d", [2, 3])
+def test_assemble_vector(d):
     n = 2
-    mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
+    if d == 2:
+        mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
+    else:
+        assert(d == 3)
+        mesh = UnitCubeMesh(MPI.COMM_WORLD, n, n, n)
 
     # HACK Create a second mesh where the "facets"
     facet_mesh = create_facet_mesh(mesh)
