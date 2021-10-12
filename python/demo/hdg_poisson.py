@@ -52,12 +52,12 @@ def create_facet_mesh(mesh):
 np.set_printoptions(linewidth=200)
 
 print("Set up problem")
-n = 4
+n = 16
 mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 # mesh = UnitCubeMesh(MPI.COMM_WORLD, n, n, n)
 facet_mesh = create_facet_mesh(mesh)
 
-k = 2
+k = 1
 V = FunctionSpace(mesh, ("DG", k))
 Vbar = FunctionSpace(facet_mesh, ("DG", k))
 
