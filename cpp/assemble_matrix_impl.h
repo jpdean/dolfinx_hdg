@@ -17,7 +17,6 @@
 #include <iostream>
 #include <xtensor/xarray.hpp>
 #include <xtensor/xio.hpp> // To cout xtensor arrays
-#include <xtensor-blas/xlinalg.hpp>
 #include "assembler_helpers.h"
 
 namespace dolfinx_hdg::fem::impl

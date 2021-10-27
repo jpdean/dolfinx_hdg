@@ -105,18 +105,26 @@ print("Compile forms")
 # JIT compile individual blocks tabulation kernels
 # TODO See if there is an enum for cell and facet integral rather than using
 # integer
-ufc_form_a00, _, _ = dolfinx.jit.ffcx_jit(mesh.mpi_comm(), a00)
-kernel_a00_cell = ufc_form_a00.integrals(0)[0].tabulate_tensor
-kernel_a00_facet = ufc_form_a00.integrals(1)[0].tabulate_tensor
+nptype = "float64"
+ffcxtype = "double"
+form_compiler_parameters={"scalar_type": ffcxtype}
 
-ufc_form_a10, _, _ = dolfinx.jit.ffcx_jit(mesh.mpi_comm(), a10)
-kernel_a10 = ufc_form_a10.integrals(1)[0].tabulate_tensor
+ufc_form_a00, _, _ = dolfinx.jit.ffcx_jit(
+    mesh.mpi_comm(), a00, form_compiler_parameters=form_compiler_parameters)
+kernel_a00_cell = getattr(ufc_form_a00.integrals(0)[0], f"tabulate_tensor_{nptype}")
+kernel_a00_facet = getattr(ufc_form_a00.integrals(1)[0], f"tabulate_tensor_{nptype}")
 
-ufc_form_a11, _, _ = dolfinx.jit.ffcx_jit(mesh.mpi_comm(), a11)
-kernel_a11 = ufc_form_a11.integrals(0)[0].tabulate_tensor
+ufc_form_a10, _, _ = dolfinx.jit.ffcx_jit(
+    mesh.mpi_comm(), a10, form_compiler_parameters=form_compiler_parameters)
+kernel_a10 = getattr(ufc_form_a10.integrals(1)[0], f"tabulate_tensor_{nptype}")
 
-ufc_form_f0, _, _ = dolfinx.jit.ffcx_jit(mesh.mpi_comm(), f0)
-kernel_f0 = ufc_form_f0.integrals(0)[0].tabulate_tensor
+ufc_form_a11, _, _ = dolfinx.jit.ffcx_jit(
+    mesh.mpi_comm(), a11, form_compiler_parameters=form_compiler_parameters)
+kernel_a11 = getattr(ufc_form_a11.integrals(0)[0], f"tabulate_tensor_{nptype}")
+
+ufc_form_f0, _, _ = dolfinx.jit.ffcx_jit(
+    mesh.mpi_comm(), f0, form_compiler_parameters=form_compiler_parameters)
+kernel_f0 = getattr(ufc_form_f0.integrals(0)[0], f"tabulate_tensor_{nptype}")
 
 print("Compile numba")
 ffi = cffi.FFI()
@@ -276,18 +284,17 @@ dofs_bar = locate_dofs_topological(Vbar, tdim - 1, facets)
 bc_bar = DirichletBC(ubar0, dofs_bar)
 
 print("Assemble LSH")
+Form = dolfinx.cpp.fem.Form_float64
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_A.address)], None)}
-a = dolfinx.cpp.fem.Form(
-    [Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], False, mesh)
+a = Form([Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], False, mesh)
 A = dolfinx_hdg.assemble.assemble_matrix(a, [bc_bar])
 A.assemble()
 
 print("Assemble RHS")
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_b.address)], None)}
-f = dolfinx.cpp.fem.Form(
-    [Vbar._cpp_object], integrals, [], [], False, mesh)
+f = Form([Vbar._cpp_object], integrals, [], [], False, mesh)
 b = dolfinx_hdg.assemble.assemble_vector(f)
 # FIXME apply_lifting not implemented in my facet space branch, so must use homogeneous BC
 set_bc(b, [bc_bar])
@@ -307,8 +314,7 @@ packed_ubar = dolfinx_hdg.assemble.pack_facet_space_coeffs_cellwise(ubar, mesh)
 print("Back substitution")
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_x.address)], None)}
-u_form = dolfinx.cpp.fem.Form(
-    [V._cpp_object], integrals, [], [], False, None)
+u_form = Form([V._cpp_object], integrals, [], [], False, None)
 
 u = Function(V)
 dolfinx.fem.assemble_vector(u.vector, u_form, coeffs=(None, packed_ubar))
