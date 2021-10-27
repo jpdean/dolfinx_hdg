@@ -24,38 +24,16 @@ import ufl
 # in more than two cells, so disable warning logs
 dolfinx.cpp.log.set_log_level(dolfinx.cpp.log.LogLevel.ERROR)
 
-# HACK to create facet space
-# FIXME Creating the mesh seems to reorder the facets/geomety,
-# so facet i in mesh is not the same as facet i in facet_mesh
-# FIXME This might be confusing topology and geometry
-def create_facet_mesh(mesh):
-    tdim = mesh.topology.dim
-
-    if tdim == 2:
-        x = mesh.geometry.x[:, :-1]
-    else:
-        assert(tdim == 3)
-        x = mesh.geometry.x
-    mesh.topology.create_connectivity(tdim - 1, 0)
-    f_to_v = mesh.topology.connectivity(tdim - 1, 0)
-
-    # HACK This only works because in d-dimensional simplices have d vertices
-    facets = f_to_v.array.reshape((-1, tdim))
-
-    facet_cell = mesh.ufl_cell().facet_cell()
-    ufl_mesh = ufl.Mesh(ufl.VectorElement("Lagrange", facet_cell, 1))
-    facet_mesh = dolfinx.mesh.create_mesh(MPI.COMM_WORLD, facets, x, ufl_mesh)
-
-    return facet_mesh
-
-
-np.set_printoptions(linewidth=200)
-
 print("Set up problem")
 n = 16
 mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 # mesh = UnitCubeMesh(MPI.COMM_WORLD, n, n, n)
-facet_mesh = create_facet_mesh(mesh)
+facet_dim = mesh.topology.dim - 1
+# FIXME What is the best way to get the total number of facets?
+mesh.topology.create_connectivity(facet_dim, 0)
+num_mesh_facets = mesh.topology.connectivity(facet_dim, 0).num_nodes
+facets = np.arange(num_mesh_facets, dtype=np.int32)
+facet_mesh = mesh.sub(facet_dim, facets)
 
 k = 1
 V = FunctionSpace(mesh, ("DG", k))
