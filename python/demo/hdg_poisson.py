@@ -304,8 +304,12 @@ e_L2 = np.sqrt(mesh.mpi_comm().allreduce(
 print(f"L2-norm of error = {e_L2}")
 
 print("Write to file")
-with XDMFFile(MPI.COMM_WORLD, "poisson.xdmf", "w") as file:
+with XDMFFile(MPI.COMM_WORLD, "poisson_u.xdmf", "w") as file:
     file.write_mesh(mesh)
     file.write_function(u)
+
+with XDMFFile(MPI.COMM_WORLD, "poisson_ubar.xdmf", "w") as file:
+    file.write_mesh(facet_mesh)
+    file.write_function(ubar)
 
 print("Done")
