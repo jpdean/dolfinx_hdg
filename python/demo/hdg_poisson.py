@@ -66,8 +66,6 @@ a00 = inner(grad(u), grad(v)) * dx_c - \
     (inner(u, dot(grad(v), n)) * ds_c + inner(v, dot(grad(u), n)) * ds_c) + \
     gamma * inner(u, v) * ds_c
 a10 = inner(dot(grad(u), n) - gamma * u, vbar) * ds_c
-# # NOTE: This adds the boundary term twice, but it's OK here as we apply
-# # homogeneous Dirichlet BCs
 a11 = gamma * inner(ubar, vbar) * dx_f
 
 x = SpatialCoordinate(mesh)
