@@ -77,10 +77,18 @@ namespace dolfinx_hdg::fem::impl
             
             dolfinx_hdg::fem::impl_helpers::get_cell_facet_perms(
                 cell_facet_perms, cell, num_cell_facets, get_perm);
+            
+            std::cout << "Cell " << cell << "\n";
+            for (int i = 0; i < num_cell_facets; ++i)
+            {
+                std::cout << "  facet = " << cell_facets[i] << " perm = " << unsigned(cell_facet_perms[i]) << "\n";
+            }
 
-            std::fill(Ae_sc.begin(), Ae_sc.end(), 0);            
+            std::fill(Ae_sc.begin(), Ae_sc.end(), 0);
             kernel(Ae_sc.data(), coeffs.data() + cell * cstride, constants.data(),
                    coordinate_dofs.data(), nullptr, cell_facet_perms.data());
+
+            std::cout << "Ae_sc\n" << Ae_sc << "\n";
 
             // Double loop over cell facets to assemble
             // FIXME Is there a better way?
@@ -179,8 +187,17 @@ namespace dolfinx_hdg::fem::impl
         const int bs1 = dofmap1->bs();
 
         // TODO dof transformations and facet permutations
-        std::function<std::uint8_t(std::size_t)> get_perm =
-            [](std::size_t) { return 0; };
+        std::function<std::uint8_t(std::size_t)> get_perm;
+        if (a.needs_facet_permutations())
+        {
+            std::cout << "Assemble matrix perms\n";
+            cell_mesh->topology_mutable().create_entity_permutations();
+            const std::vector<std::uint8_t>& perms
+                = cell_mesh->topology().get_facet_permutations();
+            get_perm = [&perms](std::size_t i) { return perms[i]; };
+        }
+        else
+            get_perm = [](std::size_t) { return 0; };
 
         for (int i : a.integral_ids(dolfinx::fem::IntegralType::cell))
         {

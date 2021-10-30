@@ -125,9 +125,16 @@ namespace dolfinx_hdg::fem::impl
         const int bs = dofmap->bs();
 
         // TODO dof transformations and facet permutations
-        std::function<std::uint8_t(std::size_t)> get_perm =
-            [](std::size_t)
-        { return 0; };
+        std::function<std::uint8_t(std::size_t)> get_perm;
+        if (L.needs_facet_permutations())
+        {
+            mesh->topology_mutable().create_entity_permutations();
+            const std::vector<std::uint8_t>& perms
+                = mesh->topology().get_facet_permutations();
+            get_perm = [&perms](std::size_t i) { return perms[i]; };
+        }
+        else
+            get_perm = [](std::size_t) { return 0; };
 
         for (int i : L.integral_ids(dolfinx::fem::IntegralType::cell))
         {

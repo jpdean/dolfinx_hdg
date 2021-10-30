@@ -1,5 +1,6 @@
 # FIXME When calling the kernels, I am often passing data that should be
 # null
+# TODO Go over code now that I'm using a facet mesh and see if it can be simplified
 
 import dolfinx
 from dolfinx import UnitSquareMesh, UnitCubeMesh, FunctionSpace, Function, DirichletBC
@@ -18,20 +19,90 @@ from dolfinx.io import XDMFFile
 import numba
 import cffi
 import ufl
+import random
+
+
+def create_random_mesh(N):
+    random.seed(6)
+    domain = ufl.Mesh(ufl.VectorElement("Lagrange", "triangle", 1))
+    temp_points = np.array([[x / 2, y / 2] for y in range(N) for x in range(N)])
+    order = [i for i, j in enumerate(temp_points)]
+    # random.shuffle(order)
+    points = np.zeros(temp_points.shape)
+    for i, j in enumerate(order):
+        points[j] = temp_points[i]
+    cells = []
+    for x in range(N - 1):
+        for y in range(N - 1):
+            a = N * y + x
+            # Adds two triangle cells:
+            # a+N -- a+N+1
+            #  |   / |
+            #  |  /  |
+            #  | /   |
+            #  a --- a+1
+            for cell in [[a, a + 1, a + N + 1], [a, a + N + 1, a + N]]:
+                cells.append([order[i] for i in cell])
+    points /= np.max(points)
+    return dolfinx.mesh.create_mesh(MPI.COMM_WORLD, cells, points, domain)
+
+
+def create_custom_mesh(ordered):
+    domain = ufl.Mesh(ufl.VectorElement("Lagrange", "triangle", 1))
+    x = np.array([[0.5, 0. ],
+                  [1. , 0. ],
+                  [1. , 0.5],
+                  [0.5, 0.5],
+                  [0. , 0. ],
+                  [1. , 1. ],
+                  [0. , 0.5],
+                  [0.5, 1. ],
+                  [0. , 1. ]])
+    if ordered:
+        cells = [[0, 1, 2],
+                 [0, 3, 2],
+                 [4, 0, 3],
+                 [3, 2, 5],
+                 [4, 6, 3],
+                 [3, 7, 5],
+                 [6, 3, 7],
+                 [6, 8, 7]]
+    else:
+        cells = [[0, 1, 2],
+                 [0, 3, 2],
+                 [4, 3, 0],
+                 [3, 2, 5],
+                 [4, 6, 3],
+                 [3, 7, 5],
+                 [6, 3, 7],
+                 [6, 8, 7]]
+    mesh = dolfinx.mesh.create_mesh(MPI.COMM_WORLD, cells, x, domain)
+    return mesh
 
 
 # Creating a facet mesh causes warnings about the same facet being
 # in more than two cells, so disable warning logs
 dolfinx.cpp.log.set_log_level(dolfinx.cpp.log.LogLevel.ERROR)
 
+np.set_printoptions(linewidth=200)
+
 print("Set up problem")
-n = 16
-mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
+# FIME n is not the same for both meshes
+# mesh = create_random_mesh(3)
+ordered = False
+mesh = create_custom_mesh(ordered)
+n = 2
+# mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 # mesh = UnitCubeMesh(MPI.COMM_WORLD, n, n, n)
 facet_dim = mesh.topology.dim - 1
 # FIXME What is the best way to get the total number of facets?
 mesh.topology.create_connectivity(facet_dim, 0)
 num_mesh_facets = mesh.topology.connectivity(facet_dim, 0).num_nodes
+# print(num_mesh_facets)
+# mesh.topology.create_entity_permutations()
+# facet_perms = mesh.topology.get_facet_permutations()
+# print(facet_perms)
+# print(np.where(facet_perms))
 facets = np.arange(num_mesh_facets, dtype=np.int32)
 facet_mesh = mesh.sub(facet_dim, facets)
 
@@ -159,6 +230,17 @@ def compute_A00_A10(w_, c_, coords_, entity_local_index,
                    ffi.from_buffer(facet),
                    ffi.from_buffer(facet_permutation))
         A10 += map_A10_f_to_A10(A10_f, i)
+    # print("A00")
+    # print(A00)
+    # print("A10")
+    # print(A10)
+    for i in range(num_cell_facets):
+        facet_permutation[0] = facet_permutations[i]
+        if (facet_permutation == 1):
+            r_0 = np.copy(A10[2 * i, :])
+            r_1 = np.copy(A10[2 * i + 1, :])
+            A10[2 * i, :] = r_1
+            A10[2 * i + 1, :] = r_0
     return A00, A10
 
 
@@ -185,6 +267,9 @@ def compute_A11(w_, c_, coords_, entity_local_index,
                    entity_local_index,
                    facet_permutations)
         A11 += map_A11_f_to_A11(A11_f, i)
+    
+    # print("A11")
+    # print(A11)
     return A11
 
 
@@ -263,51 +348,81 @@ print("Assemble LSH")
 Form = dolfinx.cpp.fem.Form_float64
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_A.address)], None)}
-a = Form([Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], False, mesh)
+# NOTE I've disabled facet perms
+a = Form([Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], True, mesh)
 A = dolfinx_hdg.assemble.assemble_matrix(a, [bc_bar])
 A.assemble()
 
-print("Assemble RHS")
-integrals = {dolfinx.fem.IntegralType.cell:
-             ([(-1, tabulate_condensed_tensor_b.address)], None)}
-f = Form([Vbar._cpp_object], integrals, [], [], False, mesh)
-b = dolfinx_hdg.assemble.assemble_vector(f)
-# FIXME apply_lifting not implemented in my facet space branch, so must use homogeneous BC
-set_bc(b, [bc_bar])
+A = A[:, :]
 
-print("Solve")
-solver = PETSc.KSP().create(mesh.mpi_comm())
-solver.setOperators(A)
-solver.setType("preonly")
-solver.getPC().setType("lu")
+if ordered:
+    A_f_name = "A_ordered.txt"
+else:
+    A_f_name = "A_unordered.txt"
 
+np.savetxt(A_f_name, A)
+
+b = np.ones(A.shape[0])
+
+xbar = np.linalg.solve(A, b)
 ubar = Function(Vbar)
-solver.solve(b, ubar.vector)
+ubar.vector[:] = xbar[:]
 
-print("Pack coefficients")
-packed_ubar = dolfinx_hdg.assemble.pack_facet_space_coeffs_cellwise(ubar, mesh)
-
-print("Back substitution")
-integrals = {dolfinx.fem.IntegralType.cell:
-             ([(-1, tabulate_x.address)], None)}
-u_form = Form([V._cpp_object], integrals, [], [], False, None)
-
-u = Function(V)
-dolfinx.fem.assemble_vector(u.vector, u_form, coeffs=(None, packed_ubar))
-
-print("Compute error")
-e = u - u_e
-e_L2 = np.sqrt(mesh.mpi_comm().allreduce(
-    assemble_scalar(inner(e, e) * dx_c), op=MPI.SUM))
-print(f"L2-norm of error = {e_L2}")
-
-print("Write to file")
-with XDMFFile(MPI.COMM_WORLD, "poisson_u.xdmf", "w") as file:
-    file.write_mesh(mesh)
-    file.write_function(u)
-
-with XDMFFile(MPI.COMM_WORLD, "poisson_ubar.xdmf", "w") as file:
+with XDMFFile(MPI.COMM_WORLD, "ubar.xdmf", "w") as file:
     file.write_mesh(facet_mesh)
     file.write_function(ubar)
 
-print("Done")
+# print(A[:, :])
+# print(np.unique(np.round(A, 6)))
+# np.savetxt("A_ordered.txt", A[:, :])
+# print(mesh.topology.)
+# print(np.where(np.isclose(A[:, :], 3.590742)))
+# print(np.where(np.isclose(A[:, :], 3.571095)))
+
+# with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "w") as file:
+#     file.write_mesh(mesh)
+
+# print("Assemble RHS")
+# integrals = {dolfinx.fem.IntegralType.cell:
+#              ([(-1, tabulate_condensed_tensor_b.address)], None)}
+# f = Form([Vbar._cpp_object], integrals, [], [], True, mesh)
+# b = dolfinx_hdg.assemble.assemble_vector(f)
+# # FIXME apply_lifting not implemented in my facet space branch, so must use homogeneous BC
+# set_bc(b, [bc_bar])
+
+# print("Solve")
+# solver = PETSc.KSP().create(mesh.mpi_comm())
+# solver.setOperators(A)
+# solver.setType("preonly")
+# solver.getPC().setType("lu")
+
+# ubar = Function(Vbar)
+# solver.solve(b, ubar.vector)
+
+# print("Pack coefficients")
+# packed_ubar = dolfinx_hdg.assemble.pack_facet_space_coeffs_cellwise(ubar, mesh)
+
+# print("Back substitution")
+# integrals = {dolfinx.fem.IntegralType.cell:
+#              ([(-1, tabulate_x.address)], None)}
+# u_form = Form([V._cpp_object], integrals, [], [], True, None)
+
+# u = Function(V)
+# dolfinx.fem.assemble_vector(u.vector, u_form, coeffs=(None, packed_ubar))
+
+# print("Compute error")
+# e = u - u_e
+# e_L2 = np.sqrt(mesh.mpi_comm().allreduce(
+#     assemble_scalar(inner(e, e) * dx_c), op=MPI.SUM))
+# print(f"L2-norm of error = {e_L2}")
+
+# print("Write to file")
+# with XDMFFile(MPI.COMM_WORLD, "poisson_u.xdmf", "w") as file:
+#     file.write_mesh(mesh)
+#     file.write_function(u)
+
+# with XDMFFile(MPI.COMM_WORLD, "poisson_ubar.xdmf", "w") as file:
+#     file.write_mesh(facet_mesh)
+#     file.write_function(ubar)
+
+# print("Done")
