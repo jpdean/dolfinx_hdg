@@ -47,9 +47,9 @@ namespace dolfinx_hdg::fem::impl
         const std::size_t num_dofs_g = x_dofmap.num_links(0);
         const xt::xtensor<double, 2>& x_g = cell_mesh.geometry().x();
 
-        // FIXME: Find better way to handle facet geom
+        // FIXME: Find nicer way to do this
         const std::size_t facet_num_dofs_g =
-            facet_mesh.geometry().dofmap().num_links(0);
+            dolfinx::mesh::entities_to_geometry(cell_mesh, tdim - 1, std::vector{0}, false).shape()[1];
 
         const int num_cell_facets
             = dolfinx::mesh::cell_num_entities(cell_mesh.topology().cell_type(), tdim - 1);
