@@ -234,6 +234,8 @@ def compute_A00_A10(w_, c_, coords_, entity_local_index,
     # print(A00)
     # print("A10")
     # print(A10)
+    # FIXME HACK to permute dofs by flipping. Figure out proper way to do
+    # this
     for i in range(num_cell_facets):
         facet_permutation[0] = facet_permutations[i]
         if (facet_permutation == 1):
@@ -353,24 +355,21 @@ a = Form([Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], True, mesh)
 A = dolfinx_hdg.assemble.assemble_matrix(a, [bc_bar])
 A.assemble()
 
-A = A[:, :]
+# A = A[:, :]
 
-if ordered:
-    A_f_name = "A_ordered.txt"
-else:
-    A_f_name = "A_unordered.txt"
+# if ordered:
+#     A_f_name = "A_ordered.txt"
+# else:
+#     A_f_name = "A_unordered.txt"
 
-np.savetxt(A_f_name, A)
+# np.savetxt(A_f_name, A)
 
-b = np.ones(A.shape[0])
+# b = np.ones(A.shape[0])
 
-xbar = np.linalg.solve(A, b)
-ubar = Function(Vbar)
-ubar.vector[:] = xbar[:]
+# xbar = np.linalg.solve(A, b)
+# ubar = Function(Vbar)
+# ubar.vector[:] = xbar[:]
 
-with XDMFFile(MPI.COMM_WORLD, "ubar.xdmf", "w") as file:
-    file.write_mesh(facet_mesh)
-    file.write_function(ubar)
 
 # print(A[:, :])
 # print(np.unique(np.round(A, 6)))
@@ -382,22 +381,26 @@ with XDMFFile(MPI.COMM_WORLD, "ubar.xdmf", "w") as file:
 # with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "w") as file:
 #     file.write_mesh(mesh)
 
-# print("Assemble RHS")
-# integrals = {dolfinx.fem.IntegralType.cell:
-#              ([(-1, tabulate_condensed_tensor_b.address)], None)}
-# f = Form([Vbar._cpp_object], integrals, [], [], True, mesh)
-# b = dolfinx_hdg.assemble.assemble_vector(f)
-# # FIXME apply_lifting not implemented in my facet space branch, so must use homogeneous BC
-# set_bc(b, [bc_bar])
+print("Assemble RHS")
+integrals = {dolfinx.fem.IntegralType.cell:
+             ([(-1, tabulate_condensed_tensor_b.address)], None)}
+f = Form([Vbar._cpp_object], integrals, [], [], True, mesh)
+b = dolfinx_hdg.assemble.assemble_vector(f)
+# FIXME apply_lifting not implemented in my facet space branch, so must use homogeneous BC
+set_bc(b, [bc_bar])
 
-# print("Solve")
-# solver = PETSc.KSP().create(mesh.mpi_comm())
-# solver.setOperators(A)
-# solver.setType("preonly")
-# solver.getPC().setType("lu")
+print("Solve")
+solver = PETSc.KSP().create(mesh.mpi_comm())
+solver.setOperators(A)
+solver.setType("preonly")
+solver.getPC().setType("lu")
 
-# ubar = Function(Vbar)
-# solver.solve(b, ubar.vector)
+ubar = Function(Vbar)
+solver.solve(b, ubar.vector)
+
+with XDMFFile(MPI.COMM_WORLD, "ubar.xdmf", "w") as file:
+    file.write_mesh(facet_mesh)
+    file.write_function(ubar)
 
 # print("Pack coefficients")
 # packed_ubar = dolfinx_hdg.assemble.pack_facet_space_coeffs_cellwise(ubar, mesh)
