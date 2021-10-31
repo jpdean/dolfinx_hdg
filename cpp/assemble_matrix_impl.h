@@ -26,7 +26,6 @@ namespace dolfinx_hdg::fem::impl
         const std::function<int(std::int32_t, const std::int32_t*, std::int32_t,
                                 const std::int32_t*, const T*)>& mat_set,
         const dolfinx::mesh::Mesh& cell_mesh,
-        const dolfinx::mesh::Mesh& facet_mesh,
         const xtl::span<const std::int32_t>& cells,
         const dolfinx::graph::AdjacencyList<std::int32_t>& dofmap0, int bs0,
         const dolfinx::graph::AdjacencyList<std::int32_t>& dofmap1, int bs1,
@@ -170,10 +169,6 @@ namespace dolfinx_hdg::fem::impl
         std::shared_ptr<const dolfinx::mesh::Mesh> cell_mesh = a.mesh();
         assert(cell_mesh);
 
-        std::shared_ptr<const dolfinx::mesh::Mesh> facet_mesh =
-            a.function_spaces().at(0)->mesh();
-        assert(facet_mesh);
-
         // Get dofmap data
         std::shared_ptr<const dolfinx::fem::DofMap> dofmap0
             = a.function_spaces().at(0)->dofmap();
@@ -205,7 +200,7 @@ namespace dolfinx_hdg::fem::impl
             const std::vector<std::int32_t>& cells = a.cell_domains(i);
             const int tdim = cell_mesh->topology().dim();
             cell_mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
-            impl::assemble_cells<T>(mat_set, *cell_mesh, *facet_mesh, cells, dofs0, bs0,
+            impl::assemble_cells<T>(mat_set, *cell_mesh, cells, dofs0, bs0,
                                     dofs1, bs1, bc0, bc1, fn, coeffs,
                                     cstride, constants, get_perm);
         }
