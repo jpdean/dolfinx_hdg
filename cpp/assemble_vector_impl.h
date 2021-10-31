@@ -110,8 +110,8 @@ namespace dolfinx_hdg::fem::impl
                          const xtl::span<const T> &coeffs,
                          int cstride)
     {
-        std::shared_ptr<const dolfinx::mesh::Mesh> mesh = L.mesh();
-        assert(mesh);
+        std::shared_ptr<const dolfinx::mesh::Mesh> cell_mesh = L.mesh();
+        assert(cell_mesh);
 
         std::shared_ptr<const dolfinx::mesh::Mesh> facet_mesh =
             L.function_spaces().at(0)->mesh();
@@ -128,9 +128,9 @@ namespace dolfinx_hdg::fem::impl
         std::function<std::uint8_t(std::size_t)> get_perm;
         if (L.needs_facet_permutations())
         {
-            mesh->topology_mutable().create_entity_permutations();
+            cell_mesh->topology_mutable().create_entity_permutations();
             const std::vector<std::uint8_t>& perms
-                = mesh->topology().get_facet_permutations();
+                = cell_mesh->topology().get_facet_permutations();
             get_perm = [&perms](std::size_t i) { return perms[i]; };
         }
         else
@@ -141,24 +141,24 @@ namespace dolfinx_hdg::fem::impl
             const auto &fn = L.kernel(dolfinx::fem::IntegralType::cell, i);
             const std::vector<std::int32_t> &cells = L.cell_domains(i);
 
-            const int tdim = mesh->topology().dim();
-            mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
+            const int tdim = cell_mesh->topology().dim();
+            cell_mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
 
             if (bs == 1)
             {
-                impl::assemble_cells<T, 1>(b, *mesh, *facet_mesh, cells, dofs, bs, fn,
+                impl::assemble_cells<T, 1>(b, *cell_mesh, *facet_mesh, cells, dofs, bs, fn,
                                            constants, coeffs, cstride,
                                            get_perm);
             }
             else if (bs == 3)
             {
-                impl::assemble_cells<T, 3>(b, *mesh, *facet_mesh, cells, dofs, bs, fn,
+                impl::assemble_cells<T, 3>(b, *cell_mesh, *facet_mesh, cells, dofs, bs, fn,
                                            constants, coeffs, cstride,
                                            get_perm);
             }
             else
             {
-                impl::assemble_cells(b, *mesh, *facet_mesh, cells, dofs, bs, fn,
+                impl::assemble_cells(b, *cell_mesh, *facet_mesh, cells, dofs, bs, fn,
                                      constants, coeffs, cstride,
                                      get_perm);
             }
