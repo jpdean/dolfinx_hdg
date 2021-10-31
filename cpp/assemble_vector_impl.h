@@ -32,7 +32,6 @@ namespace dolfinx_hdg::fem::impl
     void assemble_cells(
         xtl::span<T> b,
         const dolfinx::mesh::Mesh &cell_mesh,
-        const dolfinx::mesh::Mesh &facet_mesh,
         const xtl::span<const std::int32_t> &cells,
         const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap, const int bs,
         const std::function<void(T *, const T *, const T *, const double *, const int *,
@@ -53,9 +52,9 @@ namespace dolfinx_hdg::fem::impl
         const std::size_t num_dofs_g = x_dofmap.num_links(0);
         const xt::xtensor<double, 2> &x_g = cell_mesh.geometry().x();
 
-        // FIXME: Find better way to handle facet geom
+        // FIXME: Find nicer way to do this
         const std::size_t facet_num_dofs_g =
-            facet_mesh.geometry().dofmap().num_links(0);
+            dolfinx::mesh::entities_to_geometry(cell_mesh, tdim - 1, std::vector{0}, false).shape()[1];
 
         const int num_cell_facets = dolfinx::mesh::cell_num_entities(cell_mesh.topology().cell_type(), tdim - 1);
 
@@ -113,10 +112,6 @@ namespace dolfinx_hdg::fem::impl
         std::shared_ptr<const dolfinx::mesh::Mesh> cell_mesh = L.mesh();
         assert(cell_mesh);
 
-        std::shared_ptr<const dolfinx::mesh::Mesh> facet_mesh =
-            L.function_spaces().at(0)->mesh();
-        assert(facet_mesh);
-
         // Get dofmap data
         assert(L.function_spaces().at(0));
         std::shared_ptr<const dolfinx::fem::DofMap> dofmap = L.function_spaces().at(0)->dofmap();
@@ -146,19 +141,19 @@ namespace dolfinx_hdg::fem::impl
 
             if (bs == 1)
             {
-                impl::assemble_cells<T, 1>(b, *cell_mesh, *facet_mesh, cells, dofs, bs, fn,
+                impl::assemble_cells<T, 1>(b, *cell_mesh, cells, dofs, bs, fn,
                                            constants, coeffs, cstride,
                                            get_perm);
             }
             else if (bs == 3)
             {
-                impl::assemble_cells<T, 3>(b, *cell_mesh, *facet_mesh, cells, dofs, bs, fn,
+                impl::assemble_cells<T, 3>(b, *cell_mesh, cells, dofs, bs, fn,
                                            constants, coeffs, cstride,
                                            get_perm);
             }
             else
             {
-                impl::assemble_cells(b, *cell_mesh, *facet_mesh, cells, dofs, bs, fn,
+                impl::assemble_cells(b, *cell_mesh, cells, dofs, bs, fn,
                                      constants, coeffs, cstride,
                                      get_perm);
             }
