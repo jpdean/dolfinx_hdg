@@ -408,7 +408,8 @@ with XDMFFile(MPI.COMM_WORLD, "ubar.xdmf", "w") as file:
 print("Back substitution")
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_x.address)], None)}
-u_form = Form([V._cpp_object], integrals, [ubar._cpp_object], [], True, None)
+# FIXME Passing the facet mesh here and the cell mesh elsewhere is confusing
+u_form = Form([V._cpp_object], integrals, [ubar._cpp_object], [], True, facet_mesh)
 
 # u = Function(V)
 # dolfinx.fem.assemble_vector(u.vector, u_form, coeffs=(None, packed_ubar))
