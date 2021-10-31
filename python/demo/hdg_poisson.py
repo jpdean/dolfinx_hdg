@@ -405,10 +405,10 @@ with XDMFFile(MPI.COMM_WORLD, "ubar.xdmf", "w") as file:
 # print("Pack coefficients")
 # packed_ubar = dolfinx_hdg.assemble.pack_facet_space_coeffs_cellwise(ubar, mesh)
 
-# print("Back substitution")
-# integrals = {dolfinx.fem.IntegralType.cell:
-#              ([(-1, tabulate_x.address)], None)}
-# u_form = Form([V._cpp_object], integrals, [], [], True, None)
+print("Back substitution")
+integrals = {dolfinx.fem.IntegralType.cell:
+             ([(-1, tabulate_x.address)], None)}
+u_form = Form([V._cpp_object], integrals, [ubar._cpp_object], [], True, None)
 
 # u = Function(V)
 # dolfinx.fem.assemble_vector(u.vector, u_form, coeffs=(None, packed_ubar))
