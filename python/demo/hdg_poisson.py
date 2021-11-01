@@ -23,6 +23,7 @@ import random
 
 
 def create_random_mesh(N):
+    N += 1
     random.seed(6)
     domain = ufl.Mesh(ufl.VectorElement("Lagrange", "triangle", 1))
     temp_points = np.array([[x / 2, y / 2] for y in range(N) for x in range(N)])
@@ -90,8 +91,8 @@ print("Set up problem")
 # FIME n is not the same for both meshes
 # ordered = False
 # mesh = create_custom_mesh(ordered)
-n = 5
-mesh = create_random_mesh(n + 1)
+n = 16
+mesh = create_random_mesh(n)
 # mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 # mesh = UnitCubeMesh(MPI.COMM_WORLD, n, n, n)
 facet_dim = mesh.topology.dim - 1
