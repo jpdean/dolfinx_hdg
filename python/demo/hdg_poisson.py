@@ -191,16 +191,11 @@ def compute_A00_A10(w_, c_, coords_, entity_local_index,
         kernel_a10(ffi.from_buffer(A10_f), w_, c_, coords_,
                    ffi.from_buffer(facet),
                    ffi.from_buffer(facet_permutation))
-        A10 += map_A10_f_to_A10(A10_f, i)
-    # FIXME HACK to permute dofs by flipping. Figure out proper way to do
-    # this
-    for i in range(num_cell_facets):
-        facet_permutation[0] = facet_permutations[i]
+        # FIXME HACK to permute dofs by flipping. Figure out proper way to do
+        # this
         if (facet_permutation == 1):
-            r_0 = np.copy(A10[2 * i, :])
-            r_1 = np.copy(A10[2 * i + 1, :])
-            A10[2 * i, :] = r_1
-            A10[2 * i + 1, :] = r_0
+            A10_f = np.flipud(A10_f)
+        A10 += map_A10_f_to_A10(A10_f, i)
     return A00, A10
 
 
