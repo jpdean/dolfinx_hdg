@@ -81,13 +81,19 @@ namespace dolfinx_hdg::fem::impl
             dolfinx_hdg::fem::impl_helpers::get_cell_facet_perms(
                 cell_facet_perms, cell, num_cell_facets, get_perm);
 
+            // FIXME Consider renaming be_sc (i.e. not meaningful for backsub)
             std::fill(be_sc.begin(), be_sc.end(), 0);
             fn(be_sc.data(), coeffs.data() + cell * cstride, constants.data(),
                coordinate_dofs.data(), nullptr, cell_facet_perms.data());
 
+            // TODO dolfinx uses both bs and _bs here for perfomance. Add this.
             if (codim == 0)
             {
-                std::cout << "Backsub\n";
+                auto dofs = dofmap.links(cell);
+
+                for (int i = 0; i < num_dofs; ++i)
+                    for (int k = 0; k < bs; ++k)
+                        b[bs * dofs[i] + k] += be_sc[bs * i + k];
             }
             else
             {
