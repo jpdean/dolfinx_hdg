@@ -38,8 +38,11 @@ namespace dolfinx_hdg::fem::impl
                                  const std::uint8_t *)> &fn,
         const xtl::span<const T> &constants, const xtl::span<const T> &coeffs,
         int cstride,
-        const std::function<std::uint8_t(std::size_t)> &get_perm)
+        const std::function<std::uint8_t(std::size_t)> &get_perm,
+        const int codim)
     {
+        std::cout << "codim = " << codim << "\n";
+
         assert(_bs < 0 or _bs == bs);
 
         const int tdim = cell_mesh.topology().dim();
@@ -114,6 +117,9 @@ namespace dolfinx_hdg::fem::impl
 
         // Get dofmap data
         assert(L.function_spaces().at(0));
+
+        const int codim = cell_mesh->topology().dim() - L.function_spaces().at(0)->mesh()->topology().dim();
+
         std::shared_ptr<const dolfinx::fem::DofMap> dofmap = L.function_spaces().at(0)->dofmap();
         assert(dofmap);
         const dolfinx::graph::AdjacencyList<std::int32_t> &dofs = dofmap->list();
@@ -143,19 +149,19 @@ namespace dolfinx_hdg::fem::impl
             {
                 impl::assemble_cells<T, 1>(b, *cell_mesh, cells, dofs, bs, fn,
                                            constants, coeffs, cstride,
-                                           get_perm);
+                                           get_perm, codim);
             }
             else if (bs == 3)
             {
                 impl::assemble_cells<T, 3>(b, *cell_mesh, cells, dofs, bs, fn,
                                            constants, coeffs, cstride,
-                                           get_perm);
+                                           get_perm, codim);
             }
             else
             {
                 impl::assemble_cells(b, *cell_mesh, cells, dofs, bs, fn,
                                      constants, coeffs, cstride,
-                                     get_perm);
+                                     get_perm, codim);
             }
         }
 
