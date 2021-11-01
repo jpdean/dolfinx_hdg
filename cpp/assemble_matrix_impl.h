@@ -73,21 +73,13 @@ namespace dolfinx_hdg::fem::impl
 	
             dolfinx_hdg::fem::impl_helpers::get_coordinate_dofs(
                 coordinate_dofs, cell, cell_facets, x_dofmap, x_g, ent_to_geom);
-            
+
             dolfinx_hdg::fem::impl_helpers::get_cell_facet_perms(
                 cell_facet_perms, cell, num_cell_facets, get_perm);
-            
-            std::cout << "Cell " << cell << "\n";
-            for (int i = 0; i < num_cell_facets; ++i)
-            {
-                std::cout << "  facet = " << cell_facets[i] << " perm = " << unsigned(cell_facet_perms[i]) << "\n";
-            }
 
             std::fill(Ae_sc.begin(), Ae_sc.end(), 0);
             kernel(Ae_sc.data(), coeffs.data() + cell * cstride, constants.data(),
                    coordinate_dofs.data(), nullptr, cell_facet_perms.data());
-
-            std::cout << "Ae_sc\n" << Ae_sc << "\n";
 
             // Double loop over cell facets to assemble
             // FIXME Is there a better way?
@@ -185,7 +177,6 @@ namespace dolfinx_hdg::fem::impl
         std::function<std::uint8_t(std::size_t)> get_perm;
         if (a.needs_facet_permutations())
         {
-            std::cout << "Assemble matrix perms\n";
             cell_mesh->topology_mutable().create_entity_permutations();
             const std::vector<std::uint8_t>& perms
                 = cell_mesh->topology().get_facet_permutations();
