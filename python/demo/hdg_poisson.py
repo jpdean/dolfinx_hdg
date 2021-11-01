@@ -1,6 +1,7 @@
 # FIXME When calling the kernels, I am often passing data that should be
 # null
 # TODO Go over code now that I'm using a facet mesh and see if it can be simplified
+# TODO DOF transformations
 
 import dolfinx
 from dolfinx import UnitSquareMesh, UnitCubeMesh, FunctionSpace, Function, DirichletBC
@@ -47,40 +48,6 @@ def create_random_mesh(N):
     points /= np.max(points)
     return dolfinx.mesh.create_mesh(MPI.COMM_WORLD, cells, points, domain)
 
-
-def create_custom_mesh(ordered):
-    domain = ufl.Mesh(ufl.VectorElement("Lagrange", "triangle", 1))
-    x = np.array([[0.5, 0. ],
-                  [1. , 0. ],
-                  [1. , 0.5],
-                  [0.5, 0.5],
-                  [0. , 0. ],
-                  [1. , 1. ],
-                  [0. , 0.5],
-                  [0.5, 1. ],
-                  [0. , 1. ]])
-    if ordered:
-        cells = [[0, 1, 2],
-                 [0, 3, 2],
-                 [4, 0, 3],
-                 [3, 2, 5],
-                 [4, 6, 3],
-                 [3, 7, 5],
-                 [6, 3, 7],
-                 [6, 8, 7]]
-    else:
-        cells = [[0, 1, 2],
-                 [0, 3, 2],
-                 [4, 3, 0],
-                 [3, 2, 5],
-                 [4, 6, 3],
-                 [3, 7, 5],
-                 [6, 3, 7],
-                 [6, 8, 7]]
-    mesh = dolfinx.mesh.create_mesh(MPI.COMM_WORLD, cells, x, domain)
-    return mesh
-
-
 # Creating a facet mesh causes warnings about the same facet being
 # in more than two cells, so disable warning logs
 dolfinx.cpp.log.set_log_level(dolfinx.cpp.log.LogLevel.ERROR)
@@ -88,22 +55,16 @@ dolfinx.cpp.log.set_log_level(dolfinx.cpp.log.LogLevel.ERROR)
 np.set_printoptions(linewidth=200)
 
 print("Set up problem")
-# FIME n is not the same for both meshes
-# ordered = False
-# mesh = create_custom_mesh(ordered)
 n = 16
+# Use random mesh to check permutations are working correctly 
 mesh = create_random_mesh(n)
 # mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
+# FIXME Permutations are not working in 3D yet
 # mesh = UnitCubeMesh(MPI.COMM_WORLD, n, n, n)
 facet_dim = mesh.topology.dim - 1
 # FIXME What is the best way to get the total number of facets?
 mesh.topology.create_connectivity(facet_dim, 0)
 num_mesh_facets = mesh.topology.connectivity(facet_dim, 0).num_nodes
-# print(num_mesh_facets)
-# mesh.topology.create_entity_permutations()
-# facet_perms = mesh.topology.get_facet_permutations()
-# print(facet_perms)
-# print(np.where(facet_perms))
 facets = np.arange(num_mesh_facets, dtype=np.int32)
 facet_mesh = mesh.sub(facet_dim, facets)
 
@@ -231,10 +192,6 @@ def compute_A00_A10(w_, c_, coords_, entity_local_index,
                    ffi.from_buffer(facet),
                    ffi.from_buffer(facet_permutation))
         A10 += map_A10_f_to_A10(A10_f, i)
-    # print("A00")
-    # print(A00)
-    # print("A10")
-    # print(A10)
     # FIXME HACK to permute dofs by flipping. Figure out proper way to do
     # this
     for i in range(num_cell_facets):
@@ -270,9 +227,6 @@ def compute_A11(w_, c_, coords_, entity_local_index,
                    entity_local_index,
                    facet_permutations)
         A11 += map_A11_f_to_A11(A11_f, i)
-    
-    # print("A11")
-    # print(A11)
     return A11
 
 
@@ -337,8 +291,6 @@ def boundary(x):
         return np.logical_or(lrtb, fb)
 
 
-# FIXME Since mesh and facet mesh don't agree on the facets, check this is
-# locating the correct dofs
 facets = locate_entities_boundary(mesh, tdim - 1, boundary)
 ubar0 = Function(Vbar)
 dofs_bar = locate_dofs_topological(Vbar, tdim - 1, facets)
@@ -348,43 +300,15 @@ print("Assemble LSH")
 Form = dolfinx.cpp.fem.Form_float64
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_A.address)], None)}
-# NOTE I've disabled facet perms
 a = Form([Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], True, mesh)
 A = dolfinx_hdg.assemble.assemble_matrix(a, [bc_bar])
 A.assemble()
-
-# A = A[:, :]
-
-# if ordered:
-#     A_f_name = "A_ordered.txt"
-# else:
-#     A_f_name = "A_unordered.txt"
-
-# np.savetxt(A_f_name, A)
-
-# b = np.ones(A.shape[0])
-
-# xbar = np.linalg.solve(A, b)
-# ubar = Function(Vbar)
-# ubar.vector[:] = xbar[:]
-
-
-# print(A[:, :])
-# print(np.unique(np.round(A, 6)))
-# np.savetxt("A_ordered.txt", A[:, :])
-# print(mesh.topology.)
-# print(np.where(np.isclose(A[:, :], 3.590742)))
-# print(np.where(np.isclose(A[:, :], 3.571095)))
-
-# with XDMFFile(MPI.COMM_WORLD, "mesh.xdmf", "w") as file:
-#     file.write_mesh(mesh)
 
 print("Assemble RHS")
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_b.address)], None)}
 f = Form([Vbar._cpp_object], integrals, [], [], True, mesh)
 b = dolfinx_hdg.assemble.assemble_vector(f)
-# FIXME apply_lifting not implemented in my facet space branch, so must use homogeneous BC
 set_bc(b, [bc_bar])
 
 print("Solve")
@@ -395,10 +319,6 @@ solver.getPC().setType("lu")
 
 ubar = Function(Vbar)
 solver.solve(b, ubar.vector)
-
-with XDMFFile(MPI.COMM_WORLD, "ubar.xdmf", "w") as file:
-    file.write_mesh(facet_mesh)
-    file.write_function(ubar)
 
 print("Pack coefficients")
 # FIXME Temporary hack until we have reworked pack coefficients. Should pass
