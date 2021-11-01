@@ -1,5 +1,5 @@
 # FIXME When calling the kernels, I am often passing data that should be
-# null
+# null TODO Pass np.zeros(0, ...) for these
 # TODO Go over code now that I'm using a facet mesh and see if it can be simplified
 # TODO DOF transformations
 
