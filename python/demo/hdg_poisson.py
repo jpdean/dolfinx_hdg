@@ -88,11 +88,11 @@ np.set_printoptions(linewidth=200)
 
 print("Set up problem")
 # FIME n is not the same for both meshes
-# mesh = create_random_mesh(3)
-ordered = False
-mesh = create_custom_mesh(ordered)
-n = 2
-# mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
+# ordered = False
+# mesh = create_custom_mesh(ordered)
+n = 1
+# mesh = create_random_mesh(n + 1)
+mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 # mesh = UnitCubeMesh(MPI.COMM_WORLD, n, n, n)
 facet_dim = mesh.topology.dim - 1
 # FIXME What is the best way to get the total number of facets?
@@ -402,16 +402,18 @@ with XDMFFile(MPI.COMM_WORLD, "ubar.xdmf", "w") as file:
     file.write_mesh(facet_mesh)
     file.write_function(ubar)
 
-# print("Pack coefficients")
-# packed_ubar = dolfinx_hdg.assemble.pack_facet_space_coeffs_cellwise(ubar, mesh)
+print("Pack coefficients")
+# FIXME Temporary hack until we have reworked pack coefficients. Should pass
+# coefficient to form and pack properly there
+packed_ubar = dolfinx_hdg.assemble.pack_facet_space_coeffs_cellwise(ubar, mesh)
 
 print("Back substitution")
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_x.address)], None)}
-u_form = Form([V._cpp_object], integrals, [ubar._cpp_object], [], True, None)
+u_form = Form([V._cpp_object], integrals, [], [], True, None)
 
-# u = Function(V)
-# dolfinx.fem.assemble_vector(u.vector, u_form, coeffs=(None, packed_ubar))
+u = Function(V)
+dolfinx_hdg.assemble.assemble_vector(u.vector, u_form, coeffs=(None, packed_ubar))
 
 # print("Compute error")
 # e = u - u_e

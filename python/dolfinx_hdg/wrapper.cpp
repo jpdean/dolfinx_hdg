@@ -36,15 +36,22 @@ PYBIND11_MODULE(cpp, m)
                   dolfinx::la::PETScMatrix::set_block_fn(A, ADD_VALUES), a, bcs);
           });
 
+    // TODO dolfinx uses templating for generic type rather than PetscScalar
+    // here (and elsewhere). Add this.
     m.def(
         "assemble_vector",
         [](pybind11::array_t<PetscScalar, pybind11::array::c_style> b,
-           const dolfinx::fem::Form<PetscScalar> &L)
+           const dolfinx::fem::Form<PetscScalar> &L,
+           const py::array_t<PetscScalar, py::array::c_style>& constants,
+           const py::array_t<PetscScalar, py::array::c_style>& coeffs)
         {
             dolfinx_hdg::fem::assemble_vector<PetscScalar>(
-                xtl::span(b.mutable_data(), b.size()), L);
+                xtl::span(b.mutable_data(), b.size()), L, constants,
+                {xtl::span<const PetscScalar>(coeffs.data(), coeffs.size()),
+                    coeffs.shape(1)});
         },
-        pybind11::arg("b"), pybind11::arg("L"),
+        pybind11::arg("b"), pybind11::arg("L"), py::arg("constants"),
+        py::arg("coeffs"),
         "Assemble linear form into an existing vector");
 
     // m.def(
