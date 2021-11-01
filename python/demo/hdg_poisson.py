@@ -1,5 +1,4 @@
-# FIXME When calling the kernels, I am often passing data that should be
-# null TODO Pass np.zeros(0, ...) for these
+# TODO Test permutation against main
 # TODO Go over code now that I'm using a facet mesh and see if it can be simplified
 # TODO DOF transformations
 
@@ -144,6 +143,10 @@ c_signature = numba.types.void(
     numba.types.CPointer(numba.types.double),
     numba.types.CPointer(numba.types.int32),
     numba.types.CPointer(numba.types.uint8))
+# FIXME See if there is a better way to pass null
+null64 = np.zeros(0, dtype=np.float64)
+null32 = np.zeros(0, dtype=np.int32)
+null8 = np.zeros(0, dtype=np.uint8)
 
 
 @numba.jit(nopython=True)
@@ -168,12 +171,15 @@ def map_A11_f_to_A11(A11_f, f):
 
 
 @numba.jit(nopython=True)
-def compute_A00_A10(w_, c_, coords_, entity_local_index,
-                    facet_permutations):
+def compute_A00_A10(coords_, facet_permutations):
     A00 = np.zeros((V_ele_space_dim, V_ele_space_dim), dtype=PETSc.ScalarType)
     # FIXME How do I pass a null pointer for the last two arguments here?
-    kernel_a00_cell(ffi.from_buffer(A00), w_, c_, coords_, entity_local_index,
-                    facet_permutations)
+    kernel_a00_cell(ffi.from_buffer(A00),
+                    ffi.from_buffer(null64),
+                    ffi.from_buffer(null64),
+                    coords_,
+                    ffi.from_buffer(null32),
+                    ffi.from_buffer(null8))
     A10 = np.zeros((num_cell_facets * Vbar_ele_space_dim,
                     V_ele_space_dim), dtype=PETSc.ScalarType)
 
@@ -183,12 +189,18 @@ def compute_A00_A10(w_, c_, coords_, entity_local_index,
     for i in range(num_cell_facets):
         facet[0] = i
         facet_permutation[0] = facet_permutations[i]
-        kernel_a00_facet(ffi.from_buffer(A00), w_, c_, coords_,
+        kernel_a00_facet(ffi.from_buffer(A00),
+                         ffi.from_buffer(null64),
+                         ffi.from_buffer(null64),
+                         coords_,
                          ffi.from_buffer(facet),
                          ffi.from_buffer(facet_permutation))
         A10_f = np.zeros((Vbar_ele_space_dim, V_ele_space_dim),
                          dtype=PETSc.ScalarType)
-        kernel_a10(ffi.from_buffer(A10_f), w_, c_, coords_,
+        kernel_a10(ffi.from_buffer(A10_f),
+                   ffi.from_buffer(null64),
+                   ffi.from_buffer(null64),
+                   coords_,
                    ffi.from_buffer(facet),
                    ffi.from_buffer(facet_permutation))
         # FIXME HACK to permute dofs by flipping. Figure out proper way to do
@@ -200,9 +212,7 @@ def compute_A00_A10(w_, c_, coords_, entity_local_index,
 
 
 @numba.jit(nopython=True)
-def compute_A11(w_, c_, coords_, entity_local_index,
-                facet_permutations):
-    # FIXME How do I pass a null pointer for the last two arguments here?
+def compute_A11(coords_):
     A11 = np.zeros((num_cell_facets * Vbar_ele_space_dim,
                     num_cell_facets * Vbar_ele_space_dim),
                     dtype=PETSc.ScalarType)
@@ -216,11 +226,12 @@ def compute_A11(w_, c_, coords_, entity_local_index,
         facet_coords = coords[offset:offset + 3 * facet_num_dofs_g]
         A11_f = np.zeros((Vbar_ele_space_dim, Vbar_ele_space_dim),
                          dtype=PETSc.ScalarType)
-        # FIXME Last two should be nullptr
-        kernel_a11(ffi.from_buffer(A11_f), w_, c_,
+        kernel_a11(ffi.from_buffer(A11_f),
+                   ffi.from_buffer(null64),
+                   ffi.from_buffer(null64),
                    ffi.from_buffer(facet_coords),
-                   entity_local_index,
-                   facet_permutations)
+                   ffi.from_buffer(null32),
+                   ffi.from_buffer(null8),)
         A11 += map_A11_f_to_A11(A11_f, i)
     return A11
 
@@ -232,9 +243,8 @@ def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
                           num_cell_facets * Vbar_ele_space_dim),
                      dtype=PETSc.ScalarType)
 
-    A00, A10 = compute_A00_A10(w_, c_, coords_, entity_local_index,
-                                     facet_permutations)
-    A11 = compute_A11(w_, c_, coords_, entity_local_index, facet_permutations)
+    A00, A10 = compute_A00_A10(coords_, facet_permutations)
+    A11 = compute_A11(coords_)
 
     A += A11 - A10 @ np.linalg.solve(A00, A10.T)
 
@@ -247,11 +257,14 @@ def tabulate_condensed_tensor_b(b_, w_, c_, coords_, entity_local_index,
 
     b0 = np.zeros((V_ele_space_dim), dtype=PETSc.ScalarType)
     # TODO Pass nullptr for last two parameters
-    kernel_f0(ffi.from_buffer(b0), w_, c_, coords_, entity_local_index,
-              facet_permutations)
+    kernel_f0(ffi.from_buffer(b0),
+              ffi.from_buffer(null64),
+              ffi.from_buffer(null64),
+              coords_,
+              ffi.from_buffer(null32),
+              ffi.from_buffer(null8))
 
-    A00, A10 = compute_A00_A10(w_, c_, coords_, entity_local_index,
-                               facet_permutations)
+    A00, A10 = compute_A00_A10(coords_, facet_permutations)
     b -= A10 @ np.linalg.solve(A00, b0)
 
 
@@ -261,13 +274,15 @@ def tabulate_x(x_, w_, c_, coords_, entity_local_index,
     x = numba.carray(x_, (V_ele_space_dim), dtype=PETSc.ScalarType)
     xbar = numba.carray(w_, (num_cell_facets * Vbar_ele_space_dim),
                         dtype=PETSc.ScalarType)
-    # FIXME Don't need to pass w_ here. Pass null instead.
-    A00, A10 = compute_A00_A10(w_, c_, coords_, entity_local_index,
-                               facet_permutations)
+    A00, A10 = compute_A00_A10(coords_, facet_permutations)
     b0 = np.zeros((V_ele_space_dim), dtype=PETSc.ScalarType)
     # FIXME Pass nullptr for last two parameters
-    kernel_f0(ffi.from_buffer(b0), w_, c_, coords_, entity_local_index,
-              facet_permutations)
+    kernel_f0(ffi.from_buffer(b0),
+              ffi.from_buffer(null64),
+              ffi.from_buffer(null64),
+              coords_,
+              ffi.from_buffer(null32),
+              ffi.from_buffer(null8))
     x += np.linalg.solve(A00, b0 - A10.T @ xbar)
 
 
