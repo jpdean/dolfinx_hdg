@@ -90,9 +90,9 @@ print("Set up problem")
 # FIME n is not the same for both meshes
 # ordered = False
 # mesh = create_custom_mesh(ordered)
-n = 1
-# mesh = create_random_mesh(n + 1)
-mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
+n = 5
+mesh = create_random_mesh(n + 1)
+# mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 # mesh = UnitCubeMesh(MPI.COMM_WORLD, n, n, n)
 facet_dim = mesh.topology.dim - 1
 # FIXME What is the best way to get the total number of facets?
@@ -312,11 +312,8 @@ def tabulate_x(x_, w_, c_, coords_, entity_local_index,
     xbar = numba.carray(w_, (num_cell_facets * Vbar_ele_space_dim),
                         dtype=PETSc.ScalarType)
     # FIXME Don't need to pass w_ here. Pass null instead.
-    # FIXME dolfinx passes nullptr for facetpermutations for a cell
-    # integral. This is a HACK
-    perms = np.zeros((1), dtype=np.uint8)
     A00, A10 = compute_A00_A10(w_, c_, coords_, entity_local_index,
-                               ffi.from_buffer(perms))
+                               facet_permutations)
     b0 = np.zeros((V_ele_space_dim), dtype=PETSc.ScalarType)
     # FIXME Pass nullptr for last two parameters
     kernel_f0(ffi.from_buffer(b0), w_, c_, coords_, entity_local_index,
@@ -415,19 +412,19 @@ u_form = Form([V._cpp_object], integrals, [], [], True, None)
 u = Function(V)
 dolfinx_hdg.assemble.assemble_vector(u.vector, u_form, coeffs=(None, packed_ubar))
 
-# print("Compute error")
-# e = u - u_e
-# e_L2 = np.sqrt(mesh.mpi_comm().allreduce(
-#     assemble_scalar(inner(e, e) * dx_c), op=MPI.SUM))
-# print(f"L2-norm of error = {e_L2}")
+print("Compute error")
+e = u - u_e
+e_L2 = np.sqrt(mesh.mpi_comm().allreduce(
+    assemble_scalar(inner(e, e) * dx_c), op=MPI.SUM))
+print(f"L2-norm of error = {e_L2}")
 
-# print("Write to file")
-# with XDMFFile(MPI.COMM_WORLD, "poisson_u.xdmf", "w") as file:
-#     file.write_mesh(mesh)
-#     file.write_function(u)
+print("Write to file")
+with XDMFFile(MPI.COMM_WORLD, "poisson_u.xdmf", "w") as file:
+    file.write_mesh(mesh)
+    file.write_function(u)
 
-# with XDMFFile(MPI.COMM_WORLD, "poisson_ubar.xdmf", "w") as file:
-#     file.write_mesh(facet_mesh)
-#     file.write_function(ubar)
+with XDMFFile(MPI.COMM_WORLD, "poisson_ubar.xdmf", "w") as file:
+    file.write_mesh(facet_mesh)
+    file.write_function(ubar)
 
-# print("Done")
+print("Done")
