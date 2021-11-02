@@ -1,3 +1,4 @@
+# FIXME Facets flipped in ubar. Something is still wrong
 # TODO Go over code now that I'm using a facet mesh and see if it can be simplified
 # TODO DOF transformations
 
