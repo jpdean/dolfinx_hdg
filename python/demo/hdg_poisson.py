@@ -230,7 +230,7 @@ def compute_A11(coords_):
                    ffi.from_buffer(null64),
                    ffi.from_buffer(facet_coords),
                    ffi.from_buffer(null32),
-                   ffi.from_buffer(null8),)
+                   ffi.from_buffer(null8))
         A11 += map_A11_f_to_A11(A11_f, i)
     return A11
 
