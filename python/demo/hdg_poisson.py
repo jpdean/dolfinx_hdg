@@ -14,7 +14,7 @@ from dolfinx.fem import locate_dofs_topological
 from dolfinx.mesh import locate_entities_boundary
 from dolfinx.fem import set_bc
 from petsc4py import PETSc
-from dolfinx.io import XDMFFile
+from dolfinx.cpp.io import VTXWriter
 import numba
 import cffi
 import ufl
@@ -349,12 +349,10 @@ e_L2 = np.sqrt(mesh.mpi_comm().allreduce(
 print(f"L2-norm of error = {e_L2}")
 
 print("Write to file")
-with XDMFFile(MPI.COMM_WORLD, "poisson_u.xdmf", "w") as file:
-    file.write_mesh(mesh)
-    file.write_function(u)
+with VTXWriter(mesh.mpi_comm(), "poisson_ubar.bp", [ubar._cpp_object]) as file:
+    file.write(0)
 
-with XDMFFile(MPI.COMM_WORLD, "poisson_ubar.xdmf", "w") as file:
-    file.write_mesh(facet_mesh)
-    file.write_function(ubar)
+with VTXWriter(mesh.mpi_comm(), "poisson_u.bp", [u._cpp_object]) as file:
+    file.write(0)
 
 print("Done")
