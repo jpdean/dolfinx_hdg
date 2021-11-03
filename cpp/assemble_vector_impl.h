@@ -65,6 +65,8 @@ namespace dolfinx_hdg::fem::impl
         std::vector<double> coordinate_dofs(3 * (num_dofs_g + num_cell_facets * facet_num_dofs_g));
         std::vector<std::uint8_t> cell_facet_perms(num_cell_facets);
         auto c_to_f = cell_mesh.topology().connectivity(tdim, tdim - 1);
+        auto c_to_v = cell_mesh.topology().connectivity(tdim, 0);
+        auto f_to_v = cell_mesh.topology().connectivity(tdim - 1, 0);
 
         const int be_sc_len = codim == 0 ? bs * num_dofs : bs * num_dofs * num_cell_facets;
         xt::xarray<T> be_sc = xt::zeros<T>({be_sc_len});
@@ -80,6 +82,11 @@ namespace dolfinx_hdg::fem::impl
 
             dolfinx_hdg::fem::impl_helpers::get_cell_facet_perms(
                 cell_facet_perms, cell, num_cell_facets, get_perm);
+            
+            // if (cell == 4)
+            // {
+            //     cell_facet_perms[0] = 1;
+            // }
 
             // FIXME Consider renaming be_sc (i.e. not meaningful for backsub)
             std::fill(be_sc.begin(), be_sc.end(), 0);
@@ -97,11 +104,32 @@ namespace dolfinx_hdg::fem::impl
             }
             else
             {
+                auto cell_vertices = c_to_v->links(cell);
                 for (int local_f = 0; local_f < num_cell_facets; ++local_f)
                 {
                     const int f = cell_facets[local_f];
 
-                    auto dofs = dofmap.links(f);
+                    auto f_vertices = f_to_v->links(f);
+
+                    int check_index = 0;
+                    if (local_f == 0)
+                    {
+                        check_index = 1;
+                    }
+                    bool flip_f_dofs = cell_vertices[check_index] != f_vertices[0];
+                    if (flip_f_dofs)
+                    {
+                        std::cout << "Flip i\n";
+                    }
+
+                    auto dofs_ = dofmap.links(f);
+                    
+                    std::vector<int> dofs;
+                    dofs.assign(dofs_.begin(), dofs_.end());
+                    if (flip_f_dofs)
+                    {
+                        std::reverse(dofs.begin(), dofs.end());
+                    }
 
                     // Vector corresponding to dofs of facets f
                     xt::xarray<double> be_sc_f =
@@ -157,6 +185,7 @@ namespace dolfinx_hdg::fem::impl
 
             const int tdim = cell_mesh->topology().dim();
             cell_mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
+            cell_mesh->topology_mutable().create_connectivity(tdim - 1, 0);
 
             if (bs == 1)
             {

@@ -1,7 +1,10 @@
 # FIXME Facets flipped in ubar. Something is still wrong
+# FIXME In general case, facets could be the wrong way around and permuting flips
+# twice
 # TODO Go over code now that I'm using a facet mesh and see if it can be simplified
 # TODO DOF transformations
 
+from numpy.core.numeric import False_
 import dolfinx
 from dolfinx import UnitSquareMesh, UnitCubeMesh, FunctionSpace, Function, DirichletBC
 from dolfinx.fem import assemble_scalar
@@ -20,6 +23,39 @@ import numba
 import cffi
 import ufl
 import random
+
+
+def create_custom_mesh(ordered):
+    domain = ufl.Mesh(ufl.VectorElement("Lagrange", "triangle", 1))
+    x = np.array([[0.5, 0. ],
+                  [1. , 0. ],
+                  [1. , 0.5],
+                  [0.5, 0.5],
+                  [0. , 0. ],
+                  [1. , 1. ],
+                  [0. , 0.5],
+                  [0.5, 1. ],
+                  [0. , 1. ]])
+    if ordered:
+        cells = [[0, 1, 2],
+                 [0, 3, 2],
+                 [4, 0, 3],
+                 [3, 2, 5],
+                 [4, 6, 3],
+                 [3, 7, 5],
+                 [6, 3, 7],
+                 [6, 8, 7]]
+    else:
+        cells = [[0, 1, 2],
+                 [0, 3, 2],
+                 [4, 3, 0],
+                 [3, 2, 5],
+                 [4, 6, 3],
+                 [3, 7, 5],
+                 [6, 3, 7],
+                 [6, 8, 7]]
+    mesh = dolfinx.mesh.create_mesh(MPI.COMM_WORLD, cells, x, domain)
+    return mesh
 
 
 def create_random_mesh(N):
@@ -55,6 +91,8 @@ np.set_printoptions(linewidth=200)
 
 print("Set up problem")
 n = 16
+# ordered = False
+# mesh = create_custom_mesh(ordered)
 # Use random mesh to check permutations are working correctly 
 mesh = create_random_mesh(n)
 # mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
@@ -67,6 +105,22 @@ num_mesh_facets = mesh.topology.connectivity(facet_dim, 0).num_nodes
 facets = np.arange(num_mesh_facets, dtype=np.int32)
 facet_mesh = mesh.sub(facet_dim, facets)
 
+# num_cells = mesh.topology.connectivity(2, 0).num_nodes
+# c_to_f = mesh.topology.connectivity(2, 1)
+# c_to_v = mesh.topology.connectivity(2, 0)
+# f_to_v = mesh.topology.connectivity(1, 0)
+# for cell in range(num_cells):
+#     print(cell)
+#     cell_facets = c_to_f.links(cell)
+#     for local_facet_index in range(len(cell_facets)):
+#         facet_vertices = f_to_v.links(cell_facets[local_facet_index])
+#         cell_vertices = c_to_v.links(cell)
+#         cell_facet_vertices = cell_vertices[np.arange(len(cell_vertices))!=local_facet_index]
+#         print(f"{facet_vertices}     {cell_facet_vertices}")
+#         # assert(np.allclose(facet_vertices, cell_facet_vertices))
+
+# print("Done")
+# assert(False)
 k = 1
 V = FunctionSpace(mesh, ("DG", k))
 Vbar = FunctionSpace(facet_mesh, ("DG", k))
@@ -203,10 +257,6 @@ def compute_A00_A10(coords_, facet_permutations):
                    coords_,
                    ffi.from_buffer(facet),
                    ffi.from_buffer(facet_permutation))
-        # FIXME HACK to permute dofs by flipping. Figure out proper way to do
-        # this
-        if (facet_permutation == 1):
-            A10_f = np.flipud(A10_f)
         A10 += map_A10_f_to_A10(A10_f, i)
     return A00, A10
 
@@ -307,17 +357,19 @@ dofs_bar = locate_dofs_topological(Vbar, tdim - 1, boundary_facets)
 bc_bar = DirichletBC(ubar0, dofs_bar)
 
 print("Assemble LSH")
+use_perms = False
+
 Form = dolfinx.cpp.fem.Form_float64
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_A.address)], None)}
-a = Form([Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], True, mesh)
+a = Form([Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], use_perms, mesh)
 A = dolfinx_hdg.assemble.assemble_matrix(a, [bc_bar])
 A.assemble()
 
 print("Assemble RHS")
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_b.address)], None)}
-f = Form([Vbar._cpp_object], integrals, [], [], True, mesh)
+f = Form([Vbar._cpp_object], integrals, [], [], use_perms, mesh)
 b = dolfinx_hdg.assemble.assemble_vector(f)
 set_bc(b, [bc_bar])
 
@@ -338,7 +390,7 @@ packed_ubar = dolfinx_hdg.assemble.pack_facet_space_coeffs_cellwise(ubar, mesh)
 print("Back substitution")
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_x.address)], None)}
-u_form = Form([V._cpp_object], integrals, [], [], True, None)
+u_form = Form([V._cpp_object], integrals, [], [], use_perms, None)
 
 u = Function(V)
 dolfinx_hdg.assemble.assemble_vector(u.vector, u_form, coeffs=(None, packed_ubar))

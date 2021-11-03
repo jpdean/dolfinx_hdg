@@ -18,6 +18,8 @@ def pack_facet_space_coeffs_cellwise(coeff, mesh):
     tdim = mesh.topology.dim
     mesh.topology.create_connectivity(tdim, tdim - 1)
     c_to_f = mesh.topology.connectivity(tdim, tdim - 1)
+    c_to_v = mesh.topology.connectivity(2, 0)
+    f_to_v = mesh.topology.connectivity(1, 0)
     num_cells = c_to_f.num_nodes
     num_cell_facets = mesh.ufl_cell().num_facets()
 
@@ -27,9 +29,15 @@ def pack_facet_space_coeffs_cellwise(coeff, mesh):
     packed_coeffs = np.zeros((num_cells, num_cell_facets * ele_space_dim))
     for cell in range(num_cells):
         cell_facets = c_to_f.links(cell)
+        cell_vertices = c_to_v.links(cell)
         for local_facet in range(num_cell_facets):
             facet = cell_facets[local_facet]
+            facet_vertices = f_to_v.links(cell_facets[local_facet])
+            flip_dofs = \
+                not np.allclose(cell_vertices[np.arange(len(cell_vertices))!=local_facet], facet_vertices)
             dofs = dofmap.links(facet)
+            if flip_dofs:
+                dofs = np.flip(dofs)
             for i in range(ele_space_dim):
                 packed_coeffs[cell, local_facet * ele_space_dim + i] = \
                     coeff.vector[dofs[i]]

@@ -61,6 +61,8 @@ namespace dolfinx_hdg::fem::impl
         const int ndim1 = bs1 * num_dofs1;
         std::vector<std::uint8_t> cell_facet_perms(num_cell_facets);
         auto c_to_f = cell_mesh.topology().connectivity(tdim, tdim - 1);
+        auto c_to_v = cell_mesh.topology().connectivity(tdim, 0);
+        auto f_to_v = cell_mesh.topology().connectivity(tdim - 1, 0);
 
         xt::xarray<T> Ae_sc = xt::zeros<T>({ndim0 * num_cell_facets,
                                             ndim1 * num_cell_facets});
@@ -83,15 +85,66 @@ namespace dolfinx_hdg::fem::impl
 
             // Double loop over cell facets to assemble
             // FIXME Is there a better way?
+            auto cell_vertices = c_to_v->links(cell);
+            // for (auto v : cell_vertices)
+            // {
+            //     std::cout << v << " ";
+            // }
+            // std::cout << "\n";
             for (int local_f_i = 0; local_f_i < num_cell_facets; ++local_f_i)
             {
+                const int f_i = cell_facets[local_f_i];
+                auto f_i_vertices = f_to_v->links(f_i);
+
+                int check_index = 0;
+                if (local_f_i == 0)
+                {
+                    check_index = 1;
+                }
+                bool flip_f_i_dofs = cell_vertices[check_index] != f_i_vertices[0];
+                if (flip_f_i_dofs)
+                {
+                    std::cout << "Flip i\n";
+                }
+
+                // for (auto v : f_i_vertices)
+                // {
+                //     std::cout << v << " ";
+                // }
+                // std::cout << "\n";
+
                 for (int local_f_j = 0; local_f_j < num_cell_facets; ++local_f_j)
                 {
-                    const int f_i = cell_facets[local_f_i];
                     const int f_j = cell_facets[local_f_j];
+                    auto f_j_vertices = f_to_v->links(f_j);
 
-                    auto dofs0 = dofmap0.links(f_i);
-                    auto dofs1 = dofmap1.links(f_j);
+                    check_index = 0;
+                    if (local_f_j == 0)
+                    {
+                        check_index = 1;
+                    }
+                    bool flip_f_j_dofs = cell_vertices[check_index] != f_j_vertices[0];
+                    if (flip_f_j_dofs)
+                    {
+                        std::cout << "Flip j\n";
+                    }
+
+                    auto dofs0_ = dofmap0.links(f_i);
+                    auto dofs1_ = dofmap1.links(f_j);
+
+                    std::vector<int> dofs0;
+                    dofs0.assign(dofs0_.begin(), dofs0_.end());
+                    if (flip_f_i_dofs)
+                    {
+                        std::reverse(dofs0.begin(), dofs0.end());
+                    }
+
+                    std::vector<int> dofs1;
+                    dofs1.assign(dofs1_.begin(), dofs1_.end());
+                    if (flip_f_j_dofs)
+                    {
+                        std::reverse(dofs1.begin(), dofs1.end());
+                    }
 
                     // Matrix corresponding to dofs of facets f_i and f_j
                     // NOTE Have to cast to xt::xarray<double> (can't just use auto)
@@ -191,6 +244,7 @@ namespace dolfinx_hdg::fem::impl
             const std::vector<std::int32_t>& cells = a.cell_domains(i);
             const int tdim = cell_mesh->topology().dim();
             cell_mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
+            cell_mesh->topology_mutable().create_connectivity(tdim - 1, 0);
             impl::assemble_cells<T>(mat_set, *cell_mesh, cells, dofs0, bs0,
                                     dofs1, bs1, bc0, bc1, fn, coeffs,
                                     cstride, constants, get_perm);
