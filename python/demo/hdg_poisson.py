@@ -301,9 +301,9 @@ def boundary(x):
         return np.logical_or(lrtb, fb)
 
 
-facets = locate_entities_boundary(mesh, tdim - 1, boundary)
+boundary_facets = locate_entities_boundary(mesh, tdim - 1, boundary)
 ubar0 = Function(Vbar)
-dofs_bar = locate_dofs_topological(Vbar, tdim - 1, facets)
+dofs_bar = locate_dofs_topological(Vbar, tdim - 1, boundary_facets)
 bc_bar = DirichletBC(ubar0, dofs_bar)
 
 print("Assemble LSH")
