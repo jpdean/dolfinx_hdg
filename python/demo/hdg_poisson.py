@@ -56,8 +56,8 @@ np.set_printoptions(linewidth=200)
 print("Set up problem")
 n = 16
 # Use random mesh to check permutations are working correctly 
-mesh = create_random_mesh(n)
-# mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
+# mesh = create_random_mesh(n)
+mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 # FIXME Permutations are not working in 3D yet
 # mesh = UnitCubeMesh(MPI.COMM_WORLD, n, n, n)
 facet_dim = mesh.topology.dim - 1
@@ -203,10 +203,6 @@ def compute_A00_A10(coords_, facet_permutations):
                    coords_,
                    ffi.from_buffer(facet),
                    ffi.from_buffer(facet_permutation))
-        # FIXME HACK to permute dofs by flipping. Figure out proper way to do
-        # this
-        if (facet_permutation == 1):
-            A10_f = np.flipud(A10_f)
         A10 += map_A10_f_to_A10(A10_f, i)
     return A00, A10
 
@@ -306,18 +302,20 @@ ubar0 = Function(Vbar)
 dofs_bar = locate_dofs_topological(Vbar, tdim - 1, boundary_facets)
 bc_bar = DirichletBC(ubar0, dofs_bar)
 
+use_perms = True
+
 print("Assemble LSH")
 Form = dolfinx.cpp.fem.Form_float64
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_A.address)], None)}
-a = Form([Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], True, mesh)
+a = Form([Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], use_perms, mesh)
 A = dolfinx_hdg.assemble.assemble_matrix(a, [bc_bar])
 A.assemble()
 
 print("Assemble RHS")
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_b.address)], None)}
-f = Form([Vbar._cpp_object], integrals, [], [], True, mesh)
+f = Form([Vbar._cpp_object], integrals, [], [], use_perms, mesh)
 b = dolfinx_hdg.assemble.assemble_vector(f)
 set_bc(b, [bc_bar])
 
@@ -338,7 +336,7 @@ packed_ubar = dolfinx_hdg.assemble.pack_facet_space_coeffs_cellwise(ubar, mesh)
 print("Back substitution")
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_x.address)], None)}
-u_form = Form([V._cpp_object], integrals, [], [], True, None)
+u_form = Form([V._cpp_object], integrals, [], [], use_perms, None)
 
 u = Function(V)
 dolfinx_hdg.assemble.assemble_vector(u.vector, u_form, coeffs=(None, packed_ubar))

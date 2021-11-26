@@ -6,12 +6,12 @@
 #include <dolfinx/fem/Form.h>
 #include <dolfinx/fem/utils.h>
 #include <dolfinx/common/IndexMap.h>
-#include <dolfinx/common/types.h>
 #include <dolfinx/fem/Constant.h>
 #include <dolfinx/fem/FunctionSpace.h>
 #include <dolfinx/graph/AdjacencyList.h>
 #include <dolfinx/mesh/Geometry.h>
 #include <dolfinx/mesh/Mesh.h>
+#include <dolfinx/mesh/utils.h>
 #include <dolfinx/mesh/Topology.h>
 #include <functional>
 #include <memory>

@@ -9,6 +9,7 @@
 #include <dolfinx/la/utils.h>
 #include <dolfinx/mesh/Geometry.h>
 #include <dolfinx/mesh/Mesh.h>
+#include <dolfinx/mesh/utils.h>
 #include <dolfinx/mesh/Topology.h>
 #include <functional>
 #include <iterator>
@@ -64,13 +65,13 @@ namespace dolfinx_hdg::fem::impl
 
         xt::xarray<T> Ae_sc = xt::zeros<T>({ndim0 * num_cell_facets,
                                             ndim1 * num_cell_facets});
-        
+
         for (auto cell : cells)
         {
             auto cell_facets = c_to_f->links(cell);
             auto ent_to_geom = dolfinx::mesh::entities_to_geometry(
                 cell_mesh, tdim - 1, cell_facets, false);
-	
+
             dolfinx_hdg::fem::impl_helpers::get_coordinate_dofs(
                 coordinate_dofs, cell, cell_facets, x_dofmap, x_g, ent_to_geom);
 
