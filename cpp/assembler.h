@@ -9,6 +9,7 @@
 #include "assemble_matrix_impl.h"
 #include "assemble_vector_impl.h"
 #include <vector>
+#include <dolfinx/fem/assembler.h>
 #include <dolfinx/fem/Constant.h>
 
 namespace dolfinx_hdg::fem
@@ -17,9 +18,10 @@ namespace dolfinx_hdg::fem
     void assemble_vector(xtl::span<T> b,
                          const dolfinx::fem::Form<PetscScalar> &L,
                          const xtl::span<const T> &constants,
-                         const std::pair<xtl::span<const T>, int>& coeffs)
+                         const std::map<std::pair<dolfinx::fem::IntegralType, int>,
+                            std::pair<xtl::span<const T>, int>>& coefficients)
     {
-        impl::assemble_vector(b, L, constants, coeffs.first, coeffs.second);
+        impl::assemble_vector(b, L, constants, coefficients);
     }
 
     template <typename T>
@@ -31,9 +33,9 @@ namespace dolfinx_hdg::fem
         // are accessed incorrectly later
         const std::vector<T> constants =
             dolfinx::fem::pack_constants(L);
-        const auto [coeffs, cstride] =
-            dolfinx::fem::pack_coefficients(L);
-        assemble_vector(b, L, tcb::make_span(constants), {coeffs, cstride});
+        const auto coefficients = dolfinx::fem::pack_coefficients(L);
+        assemble_vector(b, L, tcb::make_span(constants),
+                        dolfinx::fem::make_coefficients_span(coefficients));
     }
 
     template <typename T>
@@ -42,7 +44,8 @@ namespace dolfinx_hdg::fem
                                 const std::int32_t *, const T *)> &mat_add,
         const dolfinx::fem::Form<T> &a,
         const xtl::span<const T> &constants,
-        const std::pair<xtl::span<const T>, int>& coeffs,
+        const std::map<std::pair<dolfinx::fem::IntegralType, int>,
+                   std::pair<xtl::span<const T>, int>>& coefficients,
         const std::vector<
             std::shared_ptr<const dolfinx::fem::DirichletBC<T>>> &bcs)
     {
@@ -77,7 +80,7 @@ namespace dolfinx_hdg::fem
         }
 
         // Assemble
-        impl::assemble_matrix(mat_add, a, constants, coeffs.first, coeffs.second,
+        impl::assemble_matrix(mat_add, a, constants, coefficients,
                               dof_marker0, dof_marker1);
     }
 
@@ -97,11 +100,11 @@ namespace dolfinx_hdg::fem
         // Prepare constants and coefficients
         const std::vector<T> constants =
             dolfinx::fem::pack_constants(a);
-        const auto coeffs =
+        const auto coefficients =
             dolfinx::fem::pack_coefficients(a);
 
         // Assemble
         assemble_matrix(mat_add, a, tcb::make_span(constants),
-                        {coeffs.first, coeffs.second}, bcs);
+                        dolfinx::fem::make_coefficients_span(coefficients), bcs);
     }
 }
