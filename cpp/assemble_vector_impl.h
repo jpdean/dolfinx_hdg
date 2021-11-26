@@ -6,12 +6,12 @@
 #include <dolfinx/fem/Form.h>
 #include <dolfinx/fem/utils.h>
 #include <dolfinx/common/IndexMap.h>
-#include <dolfinx/common/types.h>
 #include <dolfinx/fem/Constant.h>
 #include <dolfinx/fem/FunctionSpace.h>
 #include <dolfinx/graph/AdjacencyList.h>
 #include <dolfinx/mesh/Geometry.h>
 #include <dolfinx/mesh/Mesh.h>
+#include <dolfinx/mesh/utils.h>
 #include <dolfinx/mesh/Topology.h>
 #include <functional>
 #include <memory>
@@ -32,14 +32,14 @@ namespace dolfinx_hdg::fem::impl
     void assemble_cells(
         xtl::span<T> b,
         const dolfinx::mesh::Mesh &cell_mesh,
-        const dolfinx::mesh::Mesh &facet_mesh,
         const xtl::span<const std::int32_t> &cells,
         const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap, const int bs,
         const std::function<void(T *, const T *, const T *, const double *, const int *,
                                  const std::uint8_t *)> &fn,
         const xtl::span<const T> &constants, const xtl::span<const T> &coeffs,
         int cstride,
-        const std::function<std::uint8_t(std::size_t)> &get_perm)
+        const std::function<std::uint8_t(std::size_t)> &get_perm,
+        const int codim)
     {
         assert(_bs < 0 or _bs == bs);
 
@@ -53,9 +53,9 @@ namespace dolfinx_hdg::fem::impl
         const std::size_t num_dofs_g = x_dofmap.num_links(0);
         const xt::xtensor<double, 2> &x_g = cell_mesh.geometry().x();
 
-        // FIXME: Find better way to handle facet geom
+        // FIXME: Find nicer way to do this
         const std::size_t facet_num_dofs_g =
-            facet_mesh.geometry().dofmap().num_links(0);
+            dolfinx::mesh::entities_to_geometry(cell_mesh, tdim - 1, std::vector{0}, false).shape()[1];
 
         const int num_cell_facets = dolfinx::mesh::cell_num_entities(cell_mesh.topology().cell_type(), tdim - 1);
 
@@ -66,39 +66,53 @@ namespace dolfinx_hdg::fem::impl
         std::vector<std::uint8_t> cell_facet_perms(num_cell_facets);
         auto c_to_f = cell_mesh.topology().connectivity(tdim, tdim - 1);
 
-        xt::xarray<T> be_sc = xt::zeros<T>({bs * num_dofs * num_cell_facets});
+        const int be_sc_len = codim == 0 ? bs * num_dofs : bs * num_dofs * num_cell_facets;
+        xt::xarray<T> be_sc = xt::zeros<T>({be_sc_len});
 
         for (auto cell : cells)
         {
             auto cell_facets = c_to_f->links(cell);
             auto ent_to_geom = dolfinx::mesh::entities_to_geometry(
                 cell_mesh, tdim - 1, cell_facets, false);
-	
+
             dolfinx_hdg::fem::impl_helpers::get_coordinate_dofs(
                 coordinate_dofs, cell, cell_facets, x_dofmap, x_g, ent_to_geom);
 
             dolfinx_hdg::fem::impl_helpers::get_cell_facet_perms(
                 cell_facet_perms, cell, num_cell_facets, get_perm);
 
+            // FIXME Consider renaming be_sc (i.e. not meaningful for backsub)
             std::fill(be_sc.begin(), be_sc.end(), 0);
             fn(be_sc.data(), coeffs.data() + cell * cstride, constants.data(),
                coordinate_dofs.data(), nullptr, cell_facet_perms.data());
 
-            for (int local_f = 0; local_f < num_cell_facets; ++local_f)
+            // TODO dolfinx uses both bs and _bs here for perfomance. Add this.
+            if (codim == 0)
             {
-                const int f = cell_facets[local_f];
-
-                auto dofs = dofmap.links(f);
-
-                // Vector corresponding to dofs of facets f
-                xt::xarray<double> be_sc_f =
-                    xt::view(be_sc,
-                             xt::range(local_f * bs * num_dofs,
-                                       (local_f + 1) * bs * num_dofs));
+                auto dofs = dofmap.links(cell);
 
                 for (int i = 0; i < num_dofs; ++i)
                     for (int k = 0; k < bs; ++k)
-                        b[bs * dofs[i] + k] += be_sc_f[bs * i + k];
+                        b[bs * dofs[i] + k] += be_sc[bs * i + k];
+            }
+            else
+            {
+                for (int local_f = 0; local_f < num_cell_facets; ++local_f)
+                {
+                    const int f = cell_facets[local_f];
+
+                    auto dofs = dofmap.links(f);
+
+                    // Vector corresponding to dofs of facets f
+                    xt::xarray<double> be_sc_f =
+                        xt::view(be_sc,
+                                 xt::range(local_f * bs * num_dofs,
+                                           (local_f + 1) * bs * num_dofs));
+
+                    for (int i = 0; i < num_dofs; ++i)
+                        for (int k = 0; k < bs; ++k)
+                            b[bs * dofs[i] + k] += be_sc_f[bs * i + k];
+                }
             }
         }
     }
@@ -110,50 +124,57 @@ namespace dolfinx_hdg::fem::impl
                          const xtl::span<const T> &coeffs,
                          int cstride)
     {
-        std::shared_ptr<const dolfinx::mesh::Mesh> mesh = L.mesh();
-        assert(mesh);
-
-        std::shared_ptr<const dolfinx::mesh::Mesh> facet_mesh =
-            L.function_spaces().at(0)->mesh();
-        assert(facet_mesh);
+        std::shared_ptr<const dolfinx::mesh::Mesh> cell_mesh = L.mesh();
+        assert(cell_mesh);
 
         // Get dofmap data
         assert(L.function_spaces().at(0));
+
+        const int codim = cell_mesh->topology().dim() - L.function_spaces().at(0)->mesh()->topology().dim();
+
         std::shared_ptr<const dolfinx::fem::DofMap> dofmap = L.function_spaces().at(0)->dofmap();
         assert(dofmap);
         const dolfinx::graph::AdjacencyList<std::int32_t> &dofs = dofmap->list();
         const int bs = dofmap->bs();
 
         // TODO dof transformations and facet permutations
-        std::function<std::uint8_t(std::size_t)> get_perm =
-            [](std::size_t)
-        { return 0; };
+        std::function<std::uint8_t(std::size_t)> get_perm;
+        if (L.needs_facet_permutations())
+        {
+            cell_mesh->topology_mutable().create_entity_permutations();
+            const std::vector<std::uint8_t> &perms = cell_mesh->topology().get_facet_permutations();
+            get_perm = [&perms](std::size_t i)
+            { return perms[i]; };
+        }
+        else
+            get_perm = [](std::size_t)
+            { return 0; };
 
         for (int i : L.integral_ids(dolfinx::fem::IntegralType::cell))
         {
             const auto &fn = L.kernel(dolfinx::fem::IntegralType::cell, i);
             const std::vector<std::int32_t> &cells = L.cell_domains(i);
 
-            const int tdim = mesh->topology().dim();
-            mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
+            const int tdim = cell_mesh->topology().dim();
+            cell_mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
 
             if (bs == 1)
             {
-                impl::assemble_cells<T, 1>(b, *mesh, *facet_mesh, cells, dofs, bs, fn,
+                impl::assemble_cells<T, 1>(b, *cell_mesh, cells, dofs, bs, fn,
                                            constants, coeffs, cstride,
-                                           get_perm);
+                                           get_perm, codim);
             }
             else if (bs == 3)
             {
-                impl::assemble_cells<T, 3>(b, *mesh, *facet_mesh, cells, dofs, bs, fn,
+                impl::assemble_cells<T, 3>(b, *cell_mesh, cells, dofs, bs, fn,
                                            constants, coeffs, cstride,
-                                           get_perm);
+                                           get_perm, codim);
             }
             else
             {
-                impl::assemble_cells(b, *mesh, *facet_mesh, cells, dofs, bs, fn,
+                impl::assemble_cells(b, *cell_mesh, cells, dofs, bs, fn,
                                      constants, coeffs, cstride,
-                                     get_perm);
+                                     get_perm, codim);
             }
         }
 

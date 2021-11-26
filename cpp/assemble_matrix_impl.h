@@ -9,6 +9,7 @@
 #include <dolfinx/la/utils.h>
 #include <dolfinx/mesh/Geometry.h>
 #include <dolfinx/mesh/Mesh.h>
+#include <dolfinx/mesh/utils.h>
 #include <dolfinx/mesh/Topology.h>
 #include <functional>
 #include <iterator>
@@ -26,7 +27,6 @@ namespace dolfinx_hdg::fem::impl
         const std::function<int(std::int32_t, const std::int32_t*, std::int32_t,
                                 const std::int32_t*, const T*)>& mat_set,
         const dolfinx::mesh::Mesh& cell_mesh,
-        const dolfinx::mesh::Mesh& facet_mesh,
         const xtl::span<const std::int32_t>& cells,
         const dolfinx::graph::AdjacencyList<std::int32_t>& dofmap0, int bs0,
         const dolfinx::graph::AdjacencyList<std::int32_t>& dofmap1, int bs1,
@@ -47,9 +47,9 @@ namespace dolfinx_hdg::fem::impl
         const std::size_t num_dofs_g = x_dofmap.num_links(0);
         const xt::xtensor<double, 2>& x_g = cell_mesh.geometry().x();
 
-        // FIXME: Find better way to handle facet geom
+        // FIXME: Find nicer way to do this
         const std::size_t facet_num_dofs_g =
-            facet_mesh.geometry().dofmap().num_links(0);
+            dolfinx::mesh::entities_to_geometry(cell_mesh, tdim - 1, std::vector{0}, false).shape()[1];
 
         const int num_cell_facets
             = dolfinx::mesh::cell_num_entities(cell_mesh.topology().cell_type(), tdim - 1);
@@ -65,20 +65,20 @@ namespace dolfinx_hdg::fem::impl
 
         xt::xarray<T> Ae_sc = xt::zeros<T>({ndim0 * num_cell_facets,
                                             ndim1 * num_cell_facets});
-        
+
         for (auto cell : cells)
         {
             auto cell_facets = c_to_f->links(cell);
             auto ent_to_geom = dolfinx::mesh::entities_to_geometry(
                 cell_mesh, tdim - 1, cell_facets, false);
-	
+
             dolfinx_hdg::fem::impl_helpers::get_coordinate_dofs(
                 coordinate_dofs, cell, cell_facets, x_dofmap, x_g, ent_to_geom);
-            
+
             dolfinx_hdg::fem::impl_helpers::get_cell_facet_perms(
                 cell_facet_perms, cell, num_cell_facets, get_perm);
 
-            std::fill(Ae_sc.begin(), Ae_sc.end(), 0);            
+            std::fill(Ae_sc.begin(), Ae_sc.end(), 0);
             kernel(Ae_sc.data(), coeffs.data() + cell * cstride, constants.data(),
                    coordinate_dofs.data(), nullptr, cell_facet_perms.data());
 
@@ -162,10 +162,6 @@ namespace dolfinx_hdg::fem::impl
         std::shared_ptr<const dolfinx::mesh::Mesh> cell_mesh = a.mesh();
         assert(cell_mesh);
 
-        std::shared_ptr<const dolfinx::mesh::Mesh> facet_mesh =
-            a.function_spaces().at(0)->mesh();
-        assert(facet_mesh);
-
         // Get dofmap data
         std::shared_ptr<const dolfinx::fem::DofMap> dofmap0
             = a.function_spaces().at(0)->dofmap();
@@ -179,8 +175,16 @@ namespace dolfinx_hdg::fem::impl
         const int bs1 = dofmap1->bs();
 
         // TODO dof transformations and facet permutations
-        std::function<std::uint8_t(std::size_t)> get_perm =
-            [](std::size_t) { return 0; };
+        std::function<std::uint8_t(std::size_t)> get_perm;
+        if (a.needs_facet_permutations())
+        {
+            cell_mesh->topology_mutable().create_entity_permutations();
+            const std::vector<std::uint8_t>& perms
+                = cell_mesh->topology().get_facet_permutations();
+            get_perm = [&perms](std::size_t i) { return perms[i]; };
+        }
+        else
+            get_perm = [](std::size_t) { return 0; };
 
         for (int i : a.integral_ids(dolfinx::fem::IntegralType::cell))
         {
@@ -188,7 +192,7 @@ namespace dolfinx_hdg::fem::impl
             const std::vector<std::int32_t>& cells = a.cell_domains(i);
             const int tdim = cell_mesh->topology().dim();
             cell_mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
-            impl::assemble_cells<T>(mat_set, *cell_mesh, *facet_mesh, cells, dofs0, bs0,
+            impl::assemble_cells<T>(mat_set, *cell_mesh, cells, dofs0, bs0,
                                     dofs1, bs1, bc0, bc1, fn, coeffs,
                                     cstride, constants, get_perm);
         }

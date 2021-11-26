@@ -4,7 +4,9 @@ import dolfinx
 import typing
 from dolfinx.fem.dirichletbc import DirichletBC
 from dolfinx.fem.form import Form
-from dolfinx.fem.assemble import _create_cpp_form, _cpp_dirichletbc
+from dolfinx.fem.assemble import (_create_cpp_form, _cpp_dirichletbc,
+                                  pack_constants, pack_coefficients,
+                                  Coefficients)
 import dolfinx_hdg.cpp
 import numpy as np
 
@@ -36,7 +38,7 @@ def pack_facet_space_coeffs_cellwise(coeff, mesh):
 
 
 @functools.singledispatch
-def assemble_vector(L: Form) -> PETSc.Vec:
+def assemble_vector(L: Form, coeffs=Coefficients(None, None)) -> PETSc.Vec:
     """Assemble linear form into a new PETSc vector. The returned vector is
     not finalised, i.e. ghost values are not accumulated on the owning
     processes.
@@ -46,20 +48,25 @@ def assemble_vector(L: Form) -> PETSc.Vec:
     b = dolfinx.cpp.la.create_vector(
         _L.function_spaces[0].dofmap.index_map,
         _L.function_spaces[0].dofmap.index_map_bs)
+    c = (coeffs[0] if coeffs[0] is not None else pack_constants(_L),
+         coeffs[1] if coeffs[1] is not None else pack_coefficients(_L))
     with b.localForm() as b_local:
         b_local.set(0.0)
-        dolfinx_hdg.cpp.assemble_vector(b_local.array_w, _L)
+        dolfinx_hdg.cpp.assemble_vector(b_local.array_w, _L, c[0], c[1])
     return b
 
 
 @assemble_vector.register(PETSc.Vec)
-def _(b: PETSc.Vec, L: Form) -> PETSc.Vec:
+def _(b: PETSc.Vec, L: Form, coeffs=Coefficients(None, None)) -> PETSc.Vec:
     """Assemble linear form into an existing PETSc vector. The vector is not
     zeroed before assembly and it is not finalised, qi.e. ghost values are
     not accumulated on the owning processes.
     """
+    _L = _create_cpp_form(L)
+    c = (coeffs[0] if coeffs[0] is not None else pack_constants(_L),
+         coeffs[1] if coeffs[1] is not None else pack_coefficients(_L))
     with b.localForm() as b_local:
-        dolfinx_hdg.cpp.assemble_vector(b_local.array_w, _create_cpp_form(L))
+        dolfinx_hdg.cpp.assemble_vector(b_local.array_w, _L, c[0], c[1])
     return b
 
 
