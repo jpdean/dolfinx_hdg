@@ -156,7 +156,6 @@ namespace dolfinx_hdg::fem::impl
         const xtl::span<const T> &constants,
         const std::map<std::pair<dolfinx::fem::IntegralType, int>,
                    std::pair<xtl::span<const T>, int>>& coefficients,
-        int cstride,
         const std::vector<bool> &bc0,
         const std::vector<bool> &bc1)
     {
