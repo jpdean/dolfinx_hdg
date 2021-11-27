@@ -69,8 +69,9 @@ namespace dolfinx_hdg::fem::impl
         const int be_sc_len = codim == 0 ? bs * num_dofs : bs * num_dofs * num_cell_facets;
         xt::xarray<T> be_sc = xt::zeros<T>({be_sc_len});
 
-        for (auto cell : cells)
+        for (std::size_t index = 0; index < cells.size(); ++index)
         {
+            std::int32_t c = cells[index];
             auto cell_facets = c_to_f->links(cell);
             auto ent_to_geom = dolfinx::mesh::entities_to_geometry(
                 cell_mesh, tdim - 1, cell_facets, false);
@@ -83,7 +84,7 @@ namespace dolfinx_hdg::fem::impl
 
             // FIXME Consider renaming be_sc (i.e. not meaningful for backsub)
             std::fill(be_sc.begin(), be_sc.end(), 0);
-            fn(be_sc.data(), coeffs.data() + cell * cstride, constants.data(),
+            fn(be_sc.data(), coeffs.data() + index * cstride, constants.data(),
                coordinate_dofs.data(), nullptr, cell_facet_perms.data());
 
             // TODO dolfinx uses both bs and _bs here for perfomance. Add this.
@@ -121,8 +122,8 @@ namespace dolfinx_hdg::fem::impl
     void assemble_vector(xtl::span<T> b,
                          const dolfinx::fem::Form<PetscScalar> &L,
                          const xtl::span<const T> &constants,
-                         const xtl::span<const T> &coeffs,
-                         int cstride)
+                         const std::map<std::pair<dolfinx::fem::IntegralType, int>,
+                            std::pair<xtl::span<const T>, int>>& coefficients)
     {
         std::shared_ptr<const dolfinx::mesh::Mesh> cell_mesh = L.mesh();
         assert(cell_mesh);
@@ -153,6 +154,8 @@ namespace dolfinx_hdg::fem::impl
         for (int i : L.integral_ids(dolfinx::fem::IntegralType::cell))
         {
             const auto &fn = L.kernel(dolfinx::fem::IntegralType::cell, i);
+            const auto& [coeffs, cstride]
+                = coefficients.at({dolfinx::fem::IntegralType::cell, i});
             const std::vector<std::int32_t> &cells = L.cell_domains(i);
 
             const int tdim = cell_mesh->topology().dim();
