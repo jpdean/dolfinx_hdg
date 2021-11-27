@@ -68,7 +68,7 @@ namespace dolfinx_hdg::fem::impl
 
         for (std::size_t index = 0; index < cells.size(); ++index)
         {
-            std::int32_t c = cells[index];
+            std::int32_t cell = cells[index];
             auto cell_facets = c_to_f->links(cell);
             auto ent_to_geom = dolfinx::mesh::entities_to_geometry(
                 cell_mesh, tdim - 1, cell_facets, false);
