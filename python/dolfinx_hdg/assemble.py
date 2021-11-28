@@ -5,8 +5,7 @@ import typing
 from dolfinx.fem.dirichletbc import DirichletBC
 from dolfinx.fem.form import Form
 from dolfinx.fem.assemble import (_create_cpp_form, _cpp_dirichletbc,
-                                  pack_constants, pack_coefficients,
-                                  Coefficients)
+                                  pack_constants, Coefficients)
 import dolfinx_hdg.cpp
 import numpy as np
 
@@ -49,7 +48,7 @@ def assemble_vector(L: Form, coeffs=Coefficients(None, None)) -> PETSc.Vec:
         _L.function_spaces[0].dofmap.index_map,
         _L.function_spaces[0].dofmap.index_map_bs)
     c = (coeffs[0] if coeffs[0] is not None else pack_constants(_L),
-         coeffs[1] if coeffs[1] is not None else pack_coefficients(_L))
+         coeffs[1] if coeffs[1] is not None else dolfinx_hdg.cpp.pack_coefficients(_L))
     with b.localForm() as b_local:
         b_local.set(0.0)
         dolfinx_hdg.cpp.assemble_vector(b_local.array_w, _L, c[0], c[1])
@@ -64,7 +63,7 @@ def _(b: PETSc.Vec, L: Form, coeffs=Coefficients(None, None)) -> PETSc.Vec:
     """
     _L = _create_cpp_form(L)
     c = (coeffs[0] if coeffs[0] is not None else pack_constants(_L),
-         coeffs[1] if coeffs[1] is not None else pack_coefficients(_L))
+         coeffs[1] if coeffs[1] is not None else dolfinx_hdg.cpp.pack_coefficients(_L))
     with b.localForm() as b_local:
         dolfinx_hdg.cpp.assemble_vector(b_local.array_w, _L, c[0], c[1])
     return b
@@ -99,7 +98,7 @@ def _(A: PETSc.Mat,
     """
     _a = _create_cpp_form(a)
     c = (coeffs[0] if coeffs[0] is not None else pack_constants(_a),
-         coeffs[1] if coeffs[1] is not None else pack_coefficients(_a))
+         coeffs[1] if coeffs[1] is not None else dolfinx_hdg.cpp.pack_coefficients(_a))
     dolfinx_hdg.cpp.assemble_matrix_petsc(A, _a, c[0], c[1], _cpp_dirichletbc(bcs))
     # TODO When will this not be true? Mixed facet HDG terms?
     if _a.function_spaces[0].id == _a.function_spaces[1].id:
