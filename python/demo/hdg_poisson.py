@@ -9,6 +9,7 @@ from mpi4py import MPI
 from ufl import (TrialFunction, TestFunction, inner, FacetNormal,
                  grad, dot, SpatialCoordinate, sin, pi, div)
 import dolfinx_hdg.assemble
+import dolfinx_hdg.cpp
 import dolfinx
 import numpy as np
 from dolfinx.fem import locate_dofs_topological
@@ -328,18 +329,19 @@ solver.getPC().setType("lu")
 ubar = Function(Vbar)
 solver.solve(b, ubar.vector)
 
-print("Pack coefficients")
+# print("Pack coefficients")
+# TODO REMOVE THIS PACK COEFFICIENTS
 # FIXME Temporary hack until we have reworked pack coefficients. Should pass
 # coefficient to form and pack properly there
-packed_ubar = dolfinx_hdg.assemble.pack_facet_space_coeffs_cellwise(ubar, mesh)
+# packed_ubar = dolfinx_hdg.assemble.pack_facet_space_coeffs_cellwise(ubar, mesh)
 
 print("Back substitution")
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_x.address)], None)}
-u_form = Form([V._cpp_object], integrals, [], [], use_perms, None)
+u_form = Form([V._cpp_object], integrals, [ubar._cpp_object], [], use_perms, None)
 
 u = Function(V)
-dolfinx_hdg.assemble.assemble_vector(u.vector, u_form, coeffs=(None, packed_ubar))
+dolfinx_hdg.assemble.assemble_vector(u.vector, u_form)
 
 print("Compute error")
 e = u - u_e
