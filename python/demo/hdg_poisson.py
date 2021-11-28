@@ -329,12 +329,6 @@ solver.getPC().setType("lu")
 ubar = Function(Vbar)
 solver.solve(b, ubar.vector)
 
-# print("Pack coefficients")
-# TODO REMOVE THIS PACK COEFFICIENTS
-# FIXME Temporary hack until we have reworked pack coefficients. Should pass
-# coefficient to form and pack properly there
-# packed_ubar = dolfinx_hdg.assemble.pack_facet_space_coeffs_cellwise(ubar, mesh)
-
 print("Back substitution")
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_x.address)], None)}

@@ -10,32 +10,6 @@ import dolfinx_hdg.cpp
 import numpy as np
 
 
-# FIXME This is a HACK. Either make C++ implementation or
-# find a better approach
-def pack_facet_space_coeffs_cellwise(coeff, mesh):
-    print("WARNING: pack_facet_space_coeffs_cellwise will be replaced")
-    tdim = mesh.topology.dim
-    mesh.topology.create_connectivity(tdim, tdim - 1)
-    c_to_f = mesh.topology.connectivity(tdim, tdim - 1)
-    num_cells = c_to_f.num_nodes
-    num_cell_facets = mesh.ufl_cell().num_facets()
-
-    V = coeff.function_space
-    dofmap = V.dofmap.list
-    ele_space_dim = V.dolfin_element().space_dimension()
-    packed_coeffs = np.zeros((num_cells, num_cell_facets * ele_space_dim))
-    for cell in range(num_cells):
-        cell_facets = c_to_f.links(cell)
-        for local_facet in range(num_cell_facets):
-            facet = cell_facets[local_facet]
-            dofs = dofmap.links(facet)
-            for i in range(ele_space_dim):
-                packed_coeffs[cell, local_facet * ele_space_dim + i] = \
-                    coeff.vector[dofs[i]]
-
-    return packed_coeffs
-
-
 @functools.singledispatch
 def assemble_vector(L: Form, coeffs=Coefficients(None, None)) -> PETSc.Vec:
     """Assemble linear form into a new PETSc vector. The returned vector is
