@@ -5,36 +5,9 @@ import typing
 from dolfinx.fem.dirichletbc import DirichletBC
 from dolfinx.fem.form import Form
 from dolfinx.fem.assemble import (_create_cpp_form, _cpp_dirichletbc,
-                                  pack_constants, pack_coefficients,
-                                  Coefficients)
+                                  pack_constants, Coefficients)
 import dolfinx_hdg.cpp
 import numpy as np
-
-
-# FIXME This is a HACK. Either make C++ implementation or
-# find a better approach
-def pack_facet_space_coeffs_cellwise(coeff, mesh):
-    print("WARNING: pack_facet_space_coeffs_cellwise will be replaced")
-    tdim = mesh.topology.dim
-    mesh.topology.create_connectivity(tdim, tdim - 1)
-    c_to_f = mesh.topology.connectivity(tdim, tdim - 1)
-    num_cells = c_to_f.num_nodes
-    num_cell_facets = mesh.ufl_cell().num_facets()
-
-    V = coeff.function_space
-    dofmap = V.dofmap.list
-    ele_space_dim = V.dolfin_element().space_dimension()
-    packed_coeffs = np.zeros((num_cells, num_cell_facets * ele_space_dim))
-    for cell in range(num_cells):
-        cell_facets = c_to_f.links(cell)
-        for local_facet in range(num_cell_facets):
-            facet = cell_facets[local_facet]
-            dofs = dofmap.links(facet)
-            for i in range(ele_space_dim):
-                packed_coeffs[cell, local_facet * ele_space_dim + i] = \
-                    coeff.vector[dofs[i]]
-
-    return packed_coeffs
 
 
 @functools.singledispatch
@@ -49,7 +22,7 @@ def assemble_vector(L: Form, coeffs=Coefficients(None, None)) -> PETSc.Vec:
         _L.function_spaces[0].dofmap.index_map,
         _L.function_spaces[0].dofmap.index_map_bs)
     c = (coeffs[0] if coeffs[0] is not None else pack_constants(_L),
-         coeffs[1] if coeffs[1] is not None else pack_coefficients(_L))
+         coeffs[1] if coeffs[1] is not None else dolfinx_hdg.cpp.pack_coefficients(_L))
     with b.localForm() as b_local:
         b_local.set(0.0)
         dolfinx_hdg.cpp.assemble_vector(b_local.array_w, _L, c[0], c[1])
@@ -64,7 +37,7 @@ def _(b: PETSc.Vec, L: Form, coeffs=Coefficients(None, None)) -> PETSc.Vec:
     """
     _L = _create_cpp_form(L)
     c = (coeffs[0] if coeffs[0] is not None else pack_constants(_L),
-         coeffs[1] if coeffs[1] is not None else pack_coefficients(_L))
+         coeffs[1] if coeffs[1] is not None else dolfinx_hdg.cpp.pack_coefficients(_L))
     with b.localForm() as b_local:
         dolfinx_hdg.cpp.assemble_vector(b_local.array_w, _L, c[0], c[1])
     return b
@@ -74,7 +47,8 @@ def _(b: PETSc.Vec, L: Form, coeffs=Coefficients(None, None)) -> PETSc.Vec:
 @functools.singledispatch
 def assemble_matrix(a: Form,
         bcs: typing.List[DirichletBC] = [],
-        diagonal: float = 1.0) -> PETSc.Mat:
+        diagonal: float = 1.0,
+        coeffs=Coefficients(None, None)) -> PETSc.Mat:
     """Assemble bilinear form into a matrix. The returned matrix is not
     finalised, i.e. ghost values are not accumulated.
 
@@ -83,20 +57,23 @@ def assemble_matrix(a: Form,
     # has a different sparsity pattern to what dolfinx.create_matrix
     # would provide
     A = dolfinx_hdg.cpp.create_matrix(_create_cpp_form(a))
-    return assemble_matrix(A, a, bcs, diagonal)
+    return assemble_matrix(A, a, bcs, diagonal, coeffs)
 
 
 @assemble_matrix.register(PETSc.Mat)
 def _(A: PETSc.Mat,
       a: Form,
       bcs: typing.List[DirichletBC] = [],
-      diagonal: float = 1.0) -> PETSc.Mat:
+      diagonal: float = 1.0,
+      coeffs=Coefficients(None, None)) -> PETSc.Mat:
     """Assemble bilinear form into a matrix. The returned matrix is not
     finalised, i.e. ghost values are not accumulated.
 
     """
     _a = _create_cpp_form(a)
-    dolfinx_hdg.cpp.assemble_matrix_petsc(A, _a, _cpp_dirichletbc(bcs))
+    c = (coeffs[0] if coeffs[0] is not None else pack_constants(_a),
+         coeffs[1] if coeffs[1] is not None else dolfinx_hdg.cpp.pack_coefficients(_a))
+    dolfinx_hdg.cpp.assemble_matrix_petsc(A, _a, c[0], c[1], _cpp_dirichletbc(bcs))
     # TODO When will this not be true? Mixed facet HDG terms?
     if _a.function_spaces[0].id == _a.function_spaces[1].id:
         A.assemblyBegin(PETSc.Mat.AssemblyType.FLUSH)

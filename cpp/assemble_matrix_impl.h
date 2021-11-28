@@ -66,8 +66,9 @@ namespace dolfinx_hdg::fem::impl
         xt::xarray<T> Ae_sc = xt::zeros<T>({ndim0 * num_cell_facets,
                                             ndim1 * num_cell_facets});
 
-        for (auto cell : cells)
+        for (std::size_t index = 0; index < cells.size(); ++index)
         {
+            std::int32_t cell = cells[index];
             auto cell_facets = c_to_f->links(cell);
             auto ent_to_geom = dolfinx::mesh::entities_to_geometry(
                 cell_mesh, tdim - 1, cell_facets, false);
@@ -79,7 +80,7 @@ namespace dolfinx_hdg::fem::impl
                 cell_facet_perms, cell, num_cell_facets, get_perm);
 
             std::fill(Ae_sc.begin(), Ae_sc.end(), 0);
-            kernel(Ae_sc.data(), coeffs.data() + cell * cstride, constants.data(),
+            kernel(Ae_sc.data(), coeffs.data() + index * cstride, constants.data(),
                    coordinate_dofs.data(), nullptr, cell_facet_perms.data());
 
             // Double loop over cell facets to assemble
@@ -153,8 +154,8 @@ namespace dolfinx_hdg::fem::impl
                                 const std::int32_t *, const T *)> &mat_set,
         const dolfinx::fem::Form<T> &a,
         const xtl::span<const T> &constants,
-        const xtl::span<const T> &coeffs,
-        int cstride,
+        const std::map<std::pair<dolfinx::fem::IntegralType, int>,
+                   std::pair<xtl::span<const T>, int>>& coefficients,
         const std::vector<bool> &bc0,
         const std::vector<bool> &bc1)
     {
@@ -189,6 +190,8 @@ namespace dolfinx_hdg::fem::impl
         for (int i : a.integral_ids(dolfinx::fem::IntegralType::cell))
         {
             const auto& fn = a.kernel(dolfinx::fem::IntegralType::cell, i);
+            const auto& [coeffs, cstride] = coefficients.at(
+                {dolfinx::fem::IntegralType::cell, i});
             const std::vector<std::int32_t>& cells = a.cell_domains(i);
             const int tdim = cell_mesh->topology().dim();
             cell_mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
