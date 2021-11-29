@@ -186,10 +186,11 @@ def compute_A00_A10(coords_, facet_permutations):
 
     # FIXME Is there a neater way to do this?
     facet = np.zeros((1), dtype=np.int32)
-    facet_permutation = np.zeros((1), dtype=np.uint8)
+    facet_permutation = np.zeros((2), dtype=np.uint8)
     for i in range(num_cell_facets):
         facet[0] = i
-        facet_permutation[0] = facet_permutations[i]
+        facet_permutation[0] = facet_permutations[2 * i]
+        facet_permutation[1] = facet_permutations[2 * i + 1]
         kernel_a00_facet(ffi.from_buffer(A00),
                          ffi.from_buffer(null64),
                          ffi.from_buffer(null64),
