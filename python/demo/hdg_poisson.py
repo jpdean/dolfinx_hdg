@@ -191,6 +191,9 @@ def compute_A00_A10(coords_, facet_permutations):
         facet[0] = i
         facet_permutation[0] = facet_permutations[2 * i]
         facet_permutation[1] = facet_permutations[2 * i + 1]
+        # FIXME When FEniCS main is merged, this the facet permutation
+        # can be null here as permutations were removed from exterior
+        # facet integrals
         kernel_a00_facet(ffi.from_buffer(A00),
                          ffi.from_buffer(null64),
                          ffi.from_buffer(null64),
