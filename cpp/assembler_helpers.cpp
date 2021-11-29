@@ -50,7 +50,9 @@ void dolfinx_hdg::fem::impl_helpers::get_cell_facet_perms(
     const int num_cell_facets = cell_facets.size();
     for (int local_f = 0; local_f < num_cell_facets; ++local_f)
     {
-        cell_facet_perms[local_f] =
+        cell_facet_perms[2 * local_f] =
             get_perm(cell * num_cell_facets + local_f);
+        cell_facet_perms[2 * local_f + 1] =
+            get_full_cell_perm(cell_facets[local_f]);
     }
 }

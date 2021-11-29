@@ -61,7 +61,8 @@ namespace dolfinx_hdg::fem::impl
         const int num_dofs1 = dofmap1.links(0).size();
         const int ndim0 = bs0 * num_dofs0;
         const int ndim1 = bs1 * num_dofs1;
-        std::vector<std::uint8_t> cell_facet_perms(num_cell_facets);
+        // Each facet needs two permutations
+        std::vector<std::uint8_t> cell_facet_perms(2 * num_cell_facets);
         auto c_to_f = cell_mesh.topology().connectivity(tdim, tdim - 1);
 
         xt::xarray<T> Ae_sc = xt::zeros<T>({ndim0 * num_cell_facets,

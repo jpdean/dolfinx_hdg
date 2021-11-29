@@ -64,7 +64,8 @@ namespace dolfinx_hdg::fem::impl
         // Create data structures used in assembly
         const int num_dofs = dofmap.links(0).size();
         std::vector<double> coordinate_dofs(3 * (num_dofs_g + num_cell_facets * facet_num_dofs_g));
-        std::vector<std::uint8_t> cell_facet_perms(num_cell_facets);
+        // Each facet needs two permutations
+        std::vector<std::uint8_t> cell_facet_perms(2 * num_cell_facets);
         auto c_to_f = cell_mesh.topology().connectivity(tdim, tdim - 1);
 
         const int be_sc_len = codim == 0 ? bs * num_dofs : bs * num_dofs * num_cell_facets;
