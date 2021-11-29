@@ -309,14 +309,14 @@ print("Assemble LSH")
 Form = dolfinx.cpp.fem.Form_float64
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_A.address)], None)}
-a = Form([Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], use_perms, mesh)
+a = Form([Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], use_perms, mesh, facet_mesh)
 A = dolfinx_hdg.assemble.assemble_matrix(a, [bc_bar])
 A.assemble()
 
 print("Assemble RHS")
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_b.address)], None)}
-f = Form([Vbar._cpp_object], integrals, [], [], use_perms, mesh)
+f = Form([Vbar._cpp_object], integrals, [], [], use_perms, mesh, facet_mesh)
 b = dolfinx_hdg.assemble.assemble_vector(f)
 set_bc(b, [bc_bar])
 
@@ -332,7 +332,7 @@ solver.solve(b, ubar.vector)
 print("Back substitution")
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_x.address)], None)}
-u_form = Form([V._cpp_object], integrals, [ubar._cpp_object], [], use_perms, None)
+u_form = Form([V._cpp_object], integrals, [ubar._cpp_object], [], use_perms, mesh, facet_mesh)
 
 u = Function(V)
 dolfinx_hdg.assemble.assemble_vector(u.vector, u_form)

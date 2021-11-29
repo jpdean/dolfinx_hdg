@@ -39,6 +39,7 @@ namespace dolfinx_hdg::fem::impl
         const xtl::span<const T> &constants, const xtl::span<const T> &coeffs,
         int cstride,
         const std::function<std::uint8_t(std::size_t)> &get_perm,
+        const std::function<std::uint8_t(std::size_t)> &get_full_cell_perm,
         const int codim)
     {
         assert(_bs < 0 or _bs == bs);
@@ -80,7 +81,7 @@ namespace dolfinx_hdg::fem::impl
                 coordinate_dofs, cell, cell_facets, x_dofmap, x_g, ent_to_geom);
 
             dolfinx_hdg::fem::impl_helpers::get_cell_facet_perms(
-                cell_facet_perms, cell, num_cell_facets, get_perm);
+                cell_facet_perms, cell, cell_facets, get_perm, get_full_cell_perm);
 
             // FIXME Consider renaming be_sc (i.e. not meaningful for backsub)
             std::fill(be_sc.begin(), be_sc.end(), 0);
@@ -128,6 +129,9 @@ namespace dolfinx_hdg::fem::impl
         std::shared_ptr<const dolfinx::mesh::Mesh> cell_mesh = L.mesh();
         assert(cell_mesh);
 
+        std::shared_ptr<const dolfinx::mesh::Mesh> facet_mesh = L.facet_mesh();
+        assert(facet_mesh);
+
         // Get dofmap data
         assert(L.function_spaces().at(0));
 
@@ -140,16 +144,24 @@ namespace dolfinx_hdg::fem::impl
 
         // TODO dof transformations and facet permutations
         std::function<std::uint8_t(std::size_t)> get_perm;
+        std::function<std::uint8_t(std::size_t)> get_full_cell_perm;
         if (L.needs_facet_permutations())
         {
             cell_mesh->topology_mutable().create_entity_permutations();
             const std::vector<std::uint8_t> &perms = cell_mesh->topology().get_facet_permutations();
             get_perm = [&perms](std::size_t i)
             { return perms[i]; };
+
+            facet_mesh->topology_mutable().create_full_cell_permutations();
+            const std::vector<std::uint8_t>& full_cell_perms
+                = facet_mesh->topology().get_full_cell_permutations();
+            get_full_cell_perm = [&full_cell_perms](std::size_t i) { return full_cell_perms[i]; };
         }
         else
-            get_perm = [](std::size_t)
-            { return 0; };
+        {
+            get_perm = [](std::size_t){ return 0; };
+            get_full_cell_perm = [](std::size_t) { return 0; };
+        }
 
         for (int i : L.integral_ids(dolfinx::fem::IntegralType::cell))
         {
@@ -165,19 +177,19 @@ namespace dolfinx_hdg::fem::impl
             {
                 impl::assemble_cells<T, 1>(b, *cell_mesh, cells, dofs, bs, fn,
                                            constants, coeffs, cstride,
-                                           get_perm, codim);
+                                           get_perm, get_full_cell_perm, codim);
             }
             else if (bs == 3)
             {
                 impl::assemble_cells<T, 3>(b, *cell_mesh, cells, dofs, bs, fn,
                                            constants, coeffs, cstride,
-                                           get_perm, codim);
+                                           get_perm, get_full_cell_perm, codim);
             }
             else
             {
                 impl::assemble_cells(b, *cell_mesh, cells, dofs, bs, fn,
                                      constants, coeffs, cstride,
-                                     get_perm, codim);
+                                     get_perm, get_full_cell_perm, codim);
             }
         }
 
