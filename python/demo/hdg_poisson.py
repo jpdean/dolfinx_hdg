@@ -57,8 +57,8 @@ np.set_printoptions(linewidth=200)
 print("Set up problem")
 n = 16
 # Use random mesh to check permutations are working correctly 
-mesh = create_random_mesh(n)
-# mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
+# mesh = create_random_mesh(n)
+mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 # FIXME Permutations are not working in 3D yet
 # mesh = UnitCubeMesh(MPI.COMM_WORLD, n, n, n)
 facet_dim = mesh.topology.dim - 1
@@ -322,6 +322,7 @@ integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_b.address)], None)}
 f = Form([Vbar._cpp_object], integrals, [], [], use_perms, mesh, facet_mesh)
 b = dolfinx_hdg.assemble.assemble_vector(f)
+b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
 set_bc(b, [bc_bar])
 
 print("Solve")
