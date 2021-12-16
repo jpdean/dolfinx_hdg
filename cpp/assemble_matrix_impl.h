@@ -30,7 +30,8 @@ namespace dolfinx_hdg::fem::impl
         const xtl::span<const std::int32_t>& cells,
         const dolfinx::graph::AdjacencyList<std::int32_t>& dofmap0, int bs0,
         const dolfinx::graph::AdjacencyList<std::int32_t>& dofmap1, int bs1,
-        const std::vector<bool>& bc0, const std::vector<bool>& bc1,
+        const xtl::span<const std::int8_t>& bc0,
+        const xtl::span<const std::int8_t>& bc1,
         const std::function<void(T*, const T*, const T*, const double*, const int*,
                                 const std::uint8_t*)>& kernel,
         const xtl::span<const T>& coeffs, int cstride,
@@ -158,8 +159,8 @@ namespace dolfinx_hdg::fem::impl
         const xtl::span<const T> &constants,
         const std::map<std::pair<dolfinx::fem::IntegralType, int>,
                    std::pair<xtl::span<const T>, int>>& coefficients,
-        const std::vector<bool> &bc0,
-        const std::vector<bool> &bc1)
+        const xtl::span<const std::int8_t>& bc0,
+        const xtl::span<const std::int8_t>& bc1)
     {
         // FIXME Vector elements (i.e. block size \neq 1) might break some of this
         std::shared_ptr<const dolfinx::mesh::Mesh> cell_mesh = a.mesh();

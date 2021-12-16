@@ -3,8 +3,8 @@
 # TODO DOF transformations
 
 import dolfinx
-from dolfinx import UnitSquareMesh, UnitCubeMesh, FunctionSpace, Function, DirichletBC
-from dolfinx.fem import assemble_scalar
+from dolfinx.generation import UnitSquareMesh, UnitCubeMesh
+from dolfinx.fem import assemble_scalar, FunctionSpace, Function, DirichletBC
 from mpi4py import MPI
 from ufl import (TrialFunction, TestFunction, inner, FacetNormal,
                  grad, dot, SpatialCoordinate, sin, pi, div)
@@ -57,8 +57,8 @@ np.set_printoptions(linewidth=200)
 print("Set up problem")
 n = 16
 # Use random mesh to check permutations are working correctly 
-# mesh = create_random_mesh(n)
-mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
+mesh = create_random_mesh(n)
+# mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
 # FIXME Permutations are not working in 3D yet
 # mesh = UnitCubeMesh(MPI.COMM_WORLD, n, n, n)
 facet_dim = mesh.topology.dim - 1
@@ -119,20 +119,20 @@ ffcxtype = "double"
 form_compiler_parameters={"scalar_type": ffcxtype}
 
 ufc_form_a00, _, _ = dolfinx.jit.ffcx_jit(
-    mesh.mpi_comm(), a00, form_compiler_parameters=form_compiler_parameters)
+    mesh.comm, a00, form_compiler_parameters=form_compiler_parameters)
 kernel_a00_cell = getattr(ufc_form_a00.integrals(0)[0], f"tabulate_tensor_{nptype}")
 kernel_a00_facet = getattr(ufc_form_a00.integrals(1)[0], f"tabulate_tensor_{nptype}")
 
 ufc_form_a10, _, _ = dolfinx.jit.ffcx_jit(
-    mesh.mpi_comm(), a10, form_compiler_parameters=form_compiler_parameters)
+    mesh.comm, a10, form_compiler_parameters=form_compiler_parameters)
 kernel_a10 = getattr(ufc_form_a10.integrals(1)[0], f"tabulate_tensor_{nptype}")
 
 ufc_form_a11, _, _ = dolfinx.jit.ffcx_jit(
-    mesh.mpi_comm(), a11, form_compiler_parameters=form_compiler_parameters)
+    mesh.comm, a11, form_compiler_parameters=form_compiler_parameters)
 kernel_a11 = getattr(ufc_form_a11.integrals(0)[0], f"tabulate_tensor_{nptype}")
 
 ufc_form_f0, _, _ = dolfinx.jit.ffcx_jit(
-    mesh.mpi_comm(), f0, form_compiler_parameters=form_compiler_parameters)
+    mesh.comm, f0, form_compiler_parameters=form_compiler_parameters)
 kernel_f0 = getattr(ufc_form_f0.integrals(0)[0], f"tabulate_tensor_{nptype}")
 
 print("Compile numba")
@@ -325,7 +325,7 @@ b = dolfinx_hdg.assemble.assemble_vector(f)
 set_bc(b, [bc_bar])
 
 print("Solve")
-solver = PETSc.KSP().create(mesh.mpi_comm())
+solver = PETSc.KSP().create(mesh.comm)
 solver.setOperators(A)
 solver.setType("preonly")
 solver.getPC().setType("lu")
@@ -343,15 +343,15 @@ dolfinx_hdg.assemble.assemble_vector(u.vector, u_form)
 
 print("Compute error")
 e = u - u_e
-e_L2 = np.sqrt(mesh.mpi_comm().allreduce(
+e_L2 = np.sqrt(mesh.comm.allreduce(
     assemble_scalar(inner(e, e) * dx_c), op=MPI.SUM))
 print(f"L2-norm of error = {e_L2}")
 
 print("Write to file")
-with VTXWriter(mesh.mpi_comm(), "poisson_ubar.bp", [ubar._cpp_object]) as file:
+with VTXWriter(mesh.comm, "poisson_ubar.bp", [ubar._cpp_object]) as file:
     file.write(0)
 
-with VTXWriter(mesh.mpi_comm(), "poisson_u.bp", [u._cpp_object]) as file:
+with VTXWriter(mesh.comm, "poisson_u.bp", [u._cpp_object]) as file:
     file.write(0)
 
 print("Done")
