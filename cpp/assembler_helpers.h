@@ -17,6 +17,7 @@ namespace dolfinx_hdg::fem::impl_helpers
     void get_cell_facet_perms(
         std::vector<std::uint8_t>& cell_facet_perms,
         const std::int32_t cell,
-        const int num_cell_facets,
-        const std::function<std::uint8_t(std::size_t)>& get_perm);
+        const tcb::span<const int32_t> &cell_facets,
+        const std::function<std::uint8_t(std::size_t)>& get_perm,
+        const std::function<std::uint8_t(std::size_t)> &get_full_cell_perm);
 }

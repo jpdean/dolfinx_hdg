@@ -10,6 +10,7 @@
 #include <dolfinx/la/PETScMatrix.h>
 #include <iostream>
 #include "caster_petsc.h"
+// #include <dolfinx_hdg/Form.h>
 
 // FIXME Include this from dolfinx wrappers
 namespace dolfinx_hdg_wrappers
@@ -73,7 +74,7 @@ PYBIND11_MODULE(cpp, m)
           {
             auto _coefficients = dolfinx_hdg_wrappers::py_to_cpp_coeffs(coefficients);
             dolfinx_hdg::fem::assemble_matrix(
-                  dolfinx::la::PETScMatrix::set_block_fn(A, ADD_VALUES), a,
+                  dolfinx::la::petsc::Matrix::set_block_fn(A, ADD_VALUES), a,
                   xtl::span(constants), _coefficients, bcs);
           });
 

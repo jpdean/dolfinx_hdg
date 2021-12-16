@@ -15,5 +15,5 @@ Mat dolfinx_hdg::fem::create_matrix(const dolfinx::fem::Form<PetscScalar> &a,
     // Finalise communication
     sp.assemble();
 
-    return dolfinx::la::create_petsc_matrix(a.mesh()->mpi_comm(), sp, type);
+    return dolfinx::la::petsc::create_matrix(a.mesh()->comm(), sp, type);
 }

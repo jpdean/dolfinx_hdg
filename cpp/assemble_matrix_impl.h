@@ -30,12 +30,14 @@ namespace dolfinx_hdg::fem::impl
         const xtl::span<const std::int32_t>& cells,
         const dolfinx::graph::AdjacencyList<std::int32_t>& dofmap0, int bs0,
         const dolfinx::graph::AdjacencyList<std::int32_t>& dofmap1, int bs1,
-        const std::vector<bool>& bc0, const std::vector<bool>& bc1,
+        const xtl::span<const std::int8_t>& bc0,
+        const xtl::span<const std::int8_t>& bc1,
         const std::function<void(T*, const T*, const T*, const double*, const int*,
                                 const std::uint8_t*)>& kernel,
         const xtl::span<const T>& coeffs, int cstride,
         const xtl::span<const T>& constants,
-        const std::function<std::uint8_t(std::size_t)>& get_perm)
+        const std::function<std::uint8_t(std::size_t)>& get_perm,
+        const std::function<std::uint8_t(std::size_t)>& get_full_cell_perm)
     {
         const int tdim = cell_mesh.topology().dim();
 
@@ -60,7 +62,8 @@ namespace dolfinx_hdg::fem::impl
         const int num_dofs1 = dofmap1.links(0).size();
         const int ndim0 = bs0 * num_dofs0;
         const int ndim1 = bs1 * num_dofs1;
-        std::vector<std::uint8_t> cell_facet_perms(num_cell_facets);
+        // Each facet needs two permutations
+        std::vector<std::uint8_t> cell_facet_perms(2 * num_cell_facets);
         auto c_to_f = cell_mesh.topology().connectivity(tdim, tdim - 1);
 
         xt::xarray<T> Ae_sc = xt::zeros<T>({ndim0 * num_cell_facets,
@@ -77,7 +80,7 @@ namespace dolfinx_hdg::fem::impl
                 coordinate_dofs, cell, cell_facets, x_dofmap, x_g, ent_to_geom);
 
             dolfinx_hdg::fem::impl_helpers::get_cell_facet_perms(
-                cell_facet_perms, cell, num_cell_facets, get_perm);
+                cell_facet_perms, cell, cell_facets, get_perm, get_full_cell_perm);
 
             std::fill(Ae_sc.begin(), Ae_sc.end(), 0);
             kernel(Ae_sc.data(), coeffs.data() + index * cstride, constants.data(),
@@ -156,12 +159,15 @@ namespace dolfinx_hdg::fem::impl
         const xtl::span<const T> &constants,
         const std::map<std::pair<dolfinx::fem::IntegralType, int>,
                    std::pair<xtl::span<const T>, int>>& coefficients,
-        const std::vector<bool> &bc0,
-        const std::vector<bool> &bc1)
+        const xtl::span<const std::int8_t>& bc0,
+        const xtl::span<const std::int8_t>& bc1)
     {
         // FIXME Vector elements (i.e. block size \neq 1) might break some of this
         std::shared_ptr<const dolfinx::mesh::Mesh> cell_mesh = a.mesh();
         assert(cell_mesh);
+
+        std::shared_ptr<const dolfinx::mesh::Mesh> facet_mesh = a.facet_mesh();
+        assert(facet_mesh);
 
         // Get dofmap data
         std::shared_ptr<const dolfinx::fem::DofMap> dofmap0
@@ -177,15 +183,26 @@ namespace dolfinx_hdg::fem::impl
 
         // TODO dof transformations and facet permutations
         std::function<std::uint8_t(std::size_t)> get_perm;
+        std::function<std::uint8_t(std::size_t)> get_full_cell_perm;
+
         if (a.needs_facet_permutations())
         {
             cell_mesh->topology_mutable().create_entity_permutations();
             const std::vector<std::uint8_t>& perms
                 = cell_mesh->topology().get_facet_permutations();
             get_perm = [&perms](std::size_t i) { return perms[i]; };
+
+            facet_mesh->topology_mutable().create_full_cell_permutations();
+            const std::vector<std::uint8_t>& full_cell_perms
+                = facet_mesh->topology().get_full_cell_permutations();
+            get_full_cell_perm = [&full_cell_perms](std::size_t i) { return full_cell_perms[i]; };
         }
         else
+        {
             get_perm = [](std::size_t) { return 0; };
+            get_full_cell_perm = [](std::size_t) { return 0; };
+        }
+
 
         for (int i : a.integral_ids(dolfinx::fem::IntegralType::cell))
         {
@@ -197,7 +214,8 @@ namespace dolfinx_hdg::fem::impl
             cell_mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
             impl::assemble_cells<T>(mat_set, *cell_mesh, cells, dofs0, bs0,
                                     dofs1, bs1, bc0, bc1, fn, coeffs,
-                                    cstride, constants, get_perm);
+                                    cstride, constants, get_perm,
+                                    get_full_cell_perm);
         }
     }
 }

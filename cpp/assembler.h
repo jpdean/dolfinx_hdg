@@ -11,6 +11,7 @@
 #include <vector>
 #include <dolfinx/fem/assembler.h>
 #include <dolfinx/fem/Constant.h>
+#include <cstdint>
 
 namespace dolfinx_hdg::fem
 {
@@ -57,7 +58,7 @@ namespace dolfinx_hdg::fem
         auto bs1 = a.function_spaces().at(1)->dofmap()->index_map_bs();
 
         // Build dof markers
-        std::vector<bool> dof_marker0, dof_marker1;
+        std::vector<std::int8_t> dof_marker0, dof_marker1;
         assert(map0);
         std::int32_t dim0 = bs0 * (map0->size_local() + map0->num_ghosts());
         assert(map1);

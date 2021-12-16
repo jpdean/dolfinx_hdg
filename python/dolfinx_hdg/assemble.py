@@ -6,6 +6,7 @@ from dolfinx.fem.dirichletbc import DirichletBC
 from dolfinx.fem.form import Form
 from dolfinx.fem.assemble import (_create_cpp_form, _cpp_dirichletbc,
                                   pack_constants, Coefficients)
+import dolfinx.cpp
 import dolfinx_hdg.cpp
 import numpy as np
 
@@ -18,7 +19,7 @@ def assemble_vector(L: Form, coeffs=Coefficients(None, None)) -> PETSc.Vec:
 
     """
     _L = _create_cpp_form(L)
-    b = dolfinx.cpp.la.create_vector(
+    b = dolfinx.la.create_petsc_vector(
         _L.function_spaces[0].dofmap.index_map,
         _L.function_spaces[0].dofmap.index_map_bs)
     c = (coeffs[0] if coeffs[0] is not None else pack_constants(_L),
@@ -78,6 +79,6 @@ def _(A: PETSc.Mat,
     if _a.function_spaces[0].id == _a.function_spaces[1].id:
         A.assemblyBegin(PETSc.Mat.AssemblyType.FLUSH)
         A.assemblyEnd(PETSc.Mat.AssemblyType.FLUSH)
-        dolfinx.cpp.fem.insert_diagonal(A, _a.function_spaces[0],
-                                        _cpp_dirichletbc(bcs), diagonal)
+        dolfinx.cpp.fem.petsc.insert_diagonal(A, _a.function_spaces[0],
+                                              _cpp_dirichletbc(bcs), diagonal)
     return A
