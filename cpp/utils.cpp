@@ -16,10 +16,8 @@ dolfinx::la::SparsityPattern dolfinx_hdg::fem::create_sparsity_pattern(
 
     // Create and build sparsity pattern
     assert(dofmaps[0].get().index_map);
-    dolfinx::la::SparsityPattern sp(
-        dofmaps[0].get().index_map->comm(
-            dolfinx::common::IndexMap::Direction::forward),
-        index_maps, bs);
+    dolfinx::la::SparsityPattern sp(dofmaps[0].get().index_map->comm(), index_maps,
+                                    bs);
 
     const int tdim = topology.dim();
     auto c_to_f = topology.connectivity(tdim, tdim - 1);
