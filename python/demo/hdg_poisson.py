@@ -334,6 +334,8 @@ solver.getPC().setType("lu")
 ubar = Function(Vbar)
 solver.solve(b, ubar.vector)
 
+ubar.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+
 print("Back substitution")
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_x.address)], None)}
