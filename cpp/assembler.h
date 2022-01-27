@@ -5,6 +5,7 @@
 #include <xtl/xspan.hpp>
 #include <dolfinx/fem/DirichletBC.h>
 #include <dolfinx/fem/utils.h>
+#include <dolfinx/mesh/Mesh.h>
 #include <iostream>
 #include "assemble_matrix_impl.h"
 #include "assemble_vector_impl.h"
@@ -18,6 +19,8 @@ namespace dolfinx_hdg::fem
     template <typename T>
     void assemble_vector(xtl::span<T> b,
                          const dolfinx::fem::Form<PetscScalar> &L,
+                         const dolfinx::mesh::Mesh& mesh,
+                         const mesh::Mesh& facet_mesh,
                          const xtl::span<const T> &constants,
                          const std::map<std::pair<dolfinx::fem::IntegralType, int>,
                             std::pair<xtl::span<const T>, int>>& coefficients)

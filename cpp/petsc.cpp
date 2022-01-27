@@ -2,7 +2,7 @@
 #include <iostream>
 #include <dolfinx/la/SparsityPattern.h>
 #include "utils.h"
-#include <dolfinx/la/PETScMatrix.h>
+#include <dolfinx/la/petsc.h>
 
 // Mat dolfinx_hdg::fem::create_matrix(const Form<PetscScalar>& a,
 Mat dolfinx_hdg::fem::create_matrix(const dolfinx::fem::Form<PetscScalar> &a,
