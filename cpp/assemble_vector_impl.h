@@ -123,20 +123,16 @@ namespace dolfinx_hdg::fem::impl
     template <typename T>
     void assemble_vector(xtl::span<T> b,
                          const dolfinx::fem::Form<PetscScalar> &L,
+                         const dolfinx::mesh::Mesh& mesh,
+                         const dolfinx::mesh::Mesh& facet_mesh,
                          const xtl::span<const T> &constants,
                          const std::map<std::pair<dolfinx::fem::IntegralType, int>,
                             std::pair<xtl::span<const T>, int>>& coefficients)
     {
-        std::shared_ptr<const dolfinx::mesh::Mesh> cell_mesh = L.mesh();
-        assert(cell_mesh);
-
-        std::shared_ptr<const dolfinx::mesh::Mesh> facet_mesh = L.facet_mesh();
-        assert(facet_mesh);
-
         // Get dofmap data
         assert(L.function_spaces().at(0));
 
-        const int codim = cell_mesh->topology().dim() - L.function_spaces().at(0)->mesh()->topology().dim();
+        const int codim = mesh.topology().dim() - L.function_spaces().at(0)->mesh()->topology().dim();
 
         std::shared_ptr<const dolfinx::fem::DofMap> dofmap = L.function_spaces().at(0)->dofmap();
         assert(dofmap);
@@ -148,14 +144,14 @@ namespace dolfinx_hdg::fem::impl
         std::function<std::uint8_t(std::size_t)> get_full_cell_perm;
         if (L.needs_facet_permutations())
         {
-            cell_mesh->topology_mutable().create_entity_permutations();
-            const std::vector<std::uint8_t> &perms = cell_mesh->topology().get_facet_permutations();
+            mesh.topology_mutable().create_entity_permutations();
+            const std::vector<std::uint8_t> &perms = mesh.topology().get_facet_permutations();
             get_perm = [&perms](std::size_t i)
             { return perms[i]; };
 
-            facet_mesh->topology_mutable().create_full_cell_permutations();
+            facet_mesh.topology_mutable().create_full_cell_permutations();
             const std::vector<std::uint8_t>& full_cell_perms
-                = facet_mesh->topology().get_full_cell_permutations();
+                = facet_mesh.topology().get_full_cell_permutations();
             get_full_cell_perm = [&full_cell_perms](std::size_t i) { return full_cell_perms[i]; };
         }
         else
@@ -171,24 +167,24 @@ namespace dolfinx_hdg::fem::impl
                 = coefficients.at({dolfinx::fem::IntegralType::cell, i});
             const std::vector<std::int32_t> &cells = L.cell_domains(i);
 
-            const int tdim = cell_mesh->topology().dim();
-            cell_mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
+            const int tdim = mesh.topology().dim();
+            mesh.topology_mutable().create_connectivity(tdim, tdim - 1);
 
             if (bs == 1)
             {
-                impl::assemble_cells<T, 1>(b, *cell_mesh, cells, dofs, bs, fn,
+                impl::assemble_cells<T, 1>(b, mesh, cells, dofs, bs, fn,
                                            constants, coeffs, cstride,
                                            get_perm, get_full_cell_perm, codim);
             }
             else if (bs == 3)
             {
-                impl::assemble_cells<T, 3>(b, *cell_mesh, cells, dofs, bs, fn,
+                impl::assemble_cells<T, 3>(b, mesh, cells, dofs, bs, fn,
                                            constants, coeffs, cstride,
                                            get_perm, get_full_cell_perm, codim);
             }
             else
             {
-                impl::assemble_cells(b, *cell_mesh, cells, dofs, bs, fn,
+                impl::assemble_cells(b, mesh, cells, dofs, bs, fn,
                                      constants, coeffs, cstride,
                                      get_perm, get_full_cell_perm, codim);
             }

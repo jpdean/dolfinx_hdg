@@ -20,12 +20,12 @@ namespace dolfinx_hdg::fem
     void assemble_vector(xtl::span<T> b,
                          const dolfinx::fem::Form<PetscScalar> &L,
                          const dolfinx::mesh::Mesh& mesh,
-                         const mesh::Mesh& facet_mesh,
+                         const dolfinx::mesh::Mesh& facet_mesh,
                          const xtl::span<const T> &constants,
                          const std::map<std::pair<dolfinx::fem::IntegralType, int>,
                             std::pair<xtl::span<const T>, int>>& coefficients)
     {
-        impl::assemble_vector(b, L, constants, coefficients);
+        impl::assemble_vector(b, L, mesh, facet_mesh, constants, coefficients);
     }
 
     template <typename T>
@@ -47,6 +47,8 @@ namespace dolfinx_hdg::fem
         const std::function<int(std::int32_t, const std::int32_t *, std::int32_t,
                                 const std::int32_t *, const T *)> &mat_add,
         const dolfinx::fem::Form<T> &a,
+        const dolfinx::mesh::Mesh& mesh,
+        const dolfinx::mesh::Mesh& facet_mesh,
         const xtl::span<const T> &constants,
         const std::map<std::pair<dolfinx::fem::IntegralType, int>,
                    std::pair<xtl::span<const T>, int>>& coefficients,
@@ -84,7 +86,7 @@ namespace dolfinx_hdg::fem
         }
 
         // Assemble
-        impl::assemble_matrix(mat_add, a, constants, coefficients,
+        impl::assemble_matrix(mat_add, a, mesh, facet_mesh, constants, coefficients,
                               dof_marker0, dof_marker1);
     }
 

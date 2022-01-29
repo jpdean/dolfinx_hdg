@@ -52,6 +52,7 @@ def _(b: PETSc.Vec, L: Form, mesh, facet_mesh,
 @functools.singledispatch
 def assemble_matrix(a: Form,
         bcs: typing.List[DirichletBC] = [],
+        mesh, facet_mesh,
         diagonal: float = 1.0,
         coeffs=Coefficients(None, None)) -> PETSc.Mat:
     """Assemble bilinear form into a matrix. The returned matrix is not
@@ -62,13 +63,14 @@ def assemble_matrix(a: Form,
     # has a different sparsity pattern to what dolfinx.create_matrix
     # would provide
     A = dolfinx_hdg.cpp.create_matrix(_create_cpp_form(a))
-    return assemble_matrix(A, a, bcs, diagonal, coeffs)
+    return assemble_matrix(A, a, bcs, mesh, facet_mesh, diagonal, coeffs)
 
 
 @assemble_matrix.register(PETSc.Mat)
 def _(A: PETSc.Mat,
       a: Form,
       bcs: typing.List[DirichletBC] = [],
+      mesh, facet_mesh,
       diagonal: float = 1.0,
       coeffs=Coefficients(None, None)) -> PETSc.Mat:
     """Assemble bilinear form into a matrix. The returned matrix is not
@@ -78,7 +80,7 @@ def _(A: PETSc.Mat,
     _a = _create_cpp_form(a)
     c = (coeffs[0] if coeffs[0] is not None else pack_constants(_a),
          coeffs[1] if coeffs[1] is not None else dolfinx_hdg.cpp.pack_coefficients(_a))
-    dolfinx_hdg.cpp.assemble_matrix_petsc(A, _a, c[0], c[1], _cpp_dirichletbc(bcs))
+    dolfinx_hdg.cpp.assemble_matrix_petsc(A, _a, mesh, facet_mesh, c[0], c[1], _cpp_dirichletbc(bcs))
     # TODO When will this not be true? Mixed facet HDG terms?
     if _a.function_spaces[0].id == _a.function_spaces[1].id:
         A.assemblyBegin(PETSc.Mat.AssemblyType.FLUSH)

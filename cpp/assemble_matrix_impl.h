@@ -156,6 +156,8 @@ namespace dolfinx_hdg::fem::impl
         const std::function<int(std::int32_t, const std::int32_t *, std::int32_t,
                                 const std::int32_t *, const T *)> &mat_set,
         const dolfinx::fem::Form<T> &a,
+        const dolfinx::mesh::Mesh& mesh,
+        const dolfinx::mesh::Mesh& facet_mesh,
         const xtl::span<const T> &constants,
         const std::map<std::pair<dolfinx::fem::IntegralType, int>,
                    std::pair<xtl::span<const T>, int>>& coefficients,
@@ -163,11 +165,6 @@ namespace dolfinx_hdg::fem::impl
         const xtl::span<const std::int8_t>& bc1)
     {
         // FIXME Vector elements (i.e. block size \neq 1) might break some of this
-        std::shared_ptr<const dolfinx::mesh::Mesh> cell_mesh = a.mesh();
-        assert(cell_mesh);
-
-        std::shared_ptr<const dolfinx::mesh::Mesh> facet_mesh = a.facet_mesh();
-        assert(facet_mesh);
 
         // Get dofmap data
         std::shared_ptr<const dolfinx::fem::DofMap> dofmap0
@@ -187,14 +184,14 @@ namespace dolfinx_hdg::fem::impl
 
         if (a.needs_facet_permutations())
         {
-            cell_mesh->topology_mutable().create_entity_permutations();
+            mesh.topology_mutable().create_entity_permutations();
             const std::vector<std::uint8_t>& perms
-                = cell_mesh->topology().get_facet_permutations();
+                = mesh.topology().get_facet_permutations();
             get_perm = [&perms](std::size_t i) { return perms[i]; };
 
-            facet_mesh->topology_mutable().create_full_cell_permutations();
+            facet_mesh.topology_mutable().create_full_cell_permutations();
             const std::vector<std::uint8_t>& full_cell_perms
-                = facet_mesh->topology().get_full_cell_permutations();
+                = facet_mesh.topology().get_full_cell_permutations();
             get_full_cell_perm = [&full_cell_perms](std::size_t i) { return full_cell_perms[i]; };
         }
         else
@@ -210,9 +207,9 @@ namespace dolfinx_hdg::fem::impl
             const auto& [coeffs, cstride] = coefficients.at(
                 {dolfinx::fem::IntegralType::cell, i});
             const std::vector<std::int32_t>& cells = a.cell_domains(i);
-            const int tdim = cell_mesh->topology().dim();
-            cell_mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
-            impl::assemble_cells<T>(mat_set, *cell_mesh, cells, dofs0, bs0,
+            const int tdim = mesh.topology().dim();
+            mesh.topology_mutable().create_connectivity(tdim, tdim - 1);
+            impl::assemble_cells<T>(mat_set, mesh, cells, dofs0, bs0,
                                     dofs1, bs1, bc0, bc1, fn, coeffs,
                                     cstride, constants, get_perm,
                                     get_full_cell_perm);
