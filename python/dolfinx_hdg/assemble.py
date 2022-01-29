@@ -56,7 +56,7 @@ def assemble_matrix(a,
     # has a different sparsity pattern to what dolfinx.create_matrix
     # would provide
     A = dolfinx_hdg.cpp.create_matrix(a)
-    return assemble_matrix(A, a, bcs, mesh, facet_mesh, diagonal, coeffs)
+    return assemble_matrix(A, a, mesh, facet_mesh, bcs, diagonal, coeffs)
 
 
 @assemble_matrix.register(PETSc.Mat)
