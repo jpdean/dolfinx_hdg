@@ -36,7 +36,8 @@ void dolfinx_hdg::fem::impl_helpers::get_coordinate_dofs(
             // std::cout << "facet_x_dofs[i] = " << facet_x_dofs[i] << "\n";
             dolfinx::common::impl::copy_N<3>(std::next(x_g.begin(),
                                                        3 * facet_x_dofs[i]),
-                                             std::next(coordinate_dofs.begin(), 3 * i));
+                                             std::next(coordinate_dofs.begin(),
+                                                       offset + 3 * i));
         }
         offset += 3 * facet_x_dofs.size();
     }
