@@ -308,34 +308,33 @@ dofs_bar = locate_dofs_topological(Vbar, tdim - 1, boundary_facets)
 # bc_bar = DirichletBC(ubar0, dofs_bar)
 bc_bar = dirichletbc(PETSc.ScalarType(0), dofs_bar, Vbar)
 
-# use_perms = True
+use_perms = True
 
-# print("Assemble LSH")
-# Form = dolfinx.cpp.fem.Form_float64
-# integrals = {dolfinx.fem.IntegralType.cell:
-#              ([(-1, tabulate_condensed_tensor_A.address)], None)}
-# a = Form([Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], use_perms, mesh, facet_mesh)
-# A = dolfinx_hdg.assemble.assemble_matrix(a, [bc_bar])
-# A.assemble()
+print("Assemble LSH")
+Form = dolfinx.cpp.fem.Form_float64
+integrals = {dolfinx.fem.IntegralType.cell:
+             ([(-1, tabulate_condensed_tensor_A.address)], None)}
+a = Form([Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], use_perms, mesh)
+A = dolfinx_hdg.assemble.assemble_matrix(a, mesh, facet_mesh, [bc_bar])
+A.assemble()
 
-# print("Assemble RHS")
-# integrals = {dolfinx.fem.IntegralType.cell:
-#              ([(-1, tabulate_condensed_tensor_b.address)], None)}
-# f = Form([Vbar._cpp_object], integrals, [], [], use_perms, mesh, facet_mesh)
-# b = dolfinx_hdg.assemble.assemble_vector(f)
-# b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-# set_bc(b, [bc_bar])
+print("Assemble RHS")
+integrals = {dolfinx.fem.IntegralType.cell:
+             ([(-1, tabulate_condensed_tensor_b.address)], None)}
+f = Form([Vbar._cpp_object], integrals, [], [], use_perms, mesh)
+b = dolfinx_hdg.assemble.assemble_vector(f, mesh, facet_mesh)
+b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+set_bc(b, [bc_bar])
 
-# print("Solve")
-# solver = PETSc.KSP().create(mesh.comm)
-# solver.setOperators(A)
-# solver.setType("preonly")
-# solver.getPC().setType("lu")
+print("Solve")
+solver = PETSc.KSP().create(mesh.comm)
+solver.setOperators(A)
+solver.setType("preonly")
+solver.getPC().setType("lu")
 
-# ubar = Function(Vbar)
-# solver.solve(b, ubar.vector)
-
-# ubar.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+ubar = Function(Vbar)
+solver.solve(b, ubar.vector)
+ubar.x.scatter_forward()
 
 # print("Back substitution")
 # integrals = {dolfinx.fem.IntegralType.cell:
@@ -351,9 +350,9 @@ bc_bar = dirichletbc(PETSc.ScalarType(0), dofs_bar, Vbar)
 #     assemble_scalar(inner(e, e) * dx_c), op=MPI.SUM))
 # print(f"L2-norm of error = {e_L2}")
 
-# print("Write to file")
-# with VTXWriter(mesh.comm, "poisson_ubar.bp", [ubar._cpp_object]) as file:
-#     file.write(0)
+print("Write to file")
+with VTXWriter(mesh.comm, "poisson_ubar.bp", [ubar._cpp_object]) as file:
+    file.write(0)
 
 # with VTXWriter(mesh.comm, "poisson_u.bp", [u._cpp_object]) as file:
 #     file.write(0)
