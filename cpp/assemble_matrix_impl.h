@@ -47,7 +47,7 @@ namespace dolfinx_hdg::fem::impl
 
         // FIXME: Add proper interface for num coordinate dofs
         const std::size_t num_dofs_g = x_dofmap.num_links(0);
-        const xt::xtensor<double, 2>& x_g = cell_mesh.geometry().x();
+        xtl::span<const double> x_g = cell_mesh.geometry().x();
 
         // FIXME: Find nicer way to do this
         const std::size_t facet_num_dofs_g =
