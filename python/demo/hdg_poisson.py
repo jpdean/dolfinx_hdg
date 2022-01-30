@@ -3,8 +3,9 @@
 # TODO DOF transformations
 
 import dolfinx
-from dolfinx.mesh import create_submesh, create_unit_square
-from dolfinx.fem import assemble_scalar, FunctionSpace, Function, dirichletbc
+from dolfinx.mesh import create_submesh, create_unit_square, create_unit_cube
+from dolfinx.fem import (assemble_scalar, FunctionSpace, Function, dirichletbc,
+                         form)
 from mpi4py import MPI
 from ufl import (TrialFunction, TestFunction, inner, FacetNormal,
                  grad, dot, SpatialCoordinate, sin, pi, div)
@@ -55,10 +56,11 @@ dolfinx.cpp.log.set_log_level(dolfinx.cpp.log.LogLevel.ERROR)
 np.set_printoptions(linewidth=200)
 
 print("Set up problem")
-n = 16
+n = 8
 # Use random mesh to check permutations are working correctly 
 # mesh = create_random_mesh(n)
 mesh = create_unit_square(MPI.COMM_WORLD, n, n)
+# mesh = create_unit_cube(MPI.COMM_WORLD, n, n, n)
 # FIXME Permutations are not working in 3D yet
 # mesh = UnitCubeMesh(MPI.COMM_WORLD, n, n, n)
 facet_dim = mesh.topology.dim - 1
@@ -336,25 +338,25 @@ ubar = Function(Vbar)
 solver.solve(b, ubar.vector)
 ubar.x.scatter_forward()
 
-# print("Back substitution")
-# integrals = {dolfinx.fem.IntegralType.cell:
-#              ([(-1, tabulate_x.address)], None)}
-# u_form = Form([V._cpp_object], integrals, [ubar._cpp_object], [], use_perms, mesh, facet_mesh)
+print("Back substitution")
+integrals = {dolfinx.fem.IntegralType.cell:
+             ([(-1, tabulate_x.address)], None)}
+u_form = Form([V._cpp_object], integrals, [ubar._cpp_object], [], use_perms, mesh)
 
-# u = Function(V)
-# dolfinx_hdg.assemble.assemble_vector(u.vector, u_form)
+u = Function(V)
+dolfinx_hdg.assemble.assemble_vector(u.vector, u_form, mesh, facet_mesh)
 
-# print("Compute error")
-# e = u - u_e
-# e_L2 = np.sqrt(mesh.comm.allreduce(
-#     assemble_scalar(inner(e, e) * dx_c), op=MPI.SUM))
-# print(f"L2-norm of error = {e_L2}")
+print("Compute error")
+e = u - u_e
+e_L2 = np.sqrt(mesh.comm.allreduce(
+    assemble_scalar(form(inner(e, e) * dx_c)), op=MPI.SUM))
+print(f"L2-norm of error = {e_L2}")
 
 print("Write to file")
 with VTXWriter(mesh.comm, "poisson_ubar.bp", [ubar._cpp_object]) as file:
     file.write(0)
 
-# with VTXWriter(mesh.comm, "poisson_u.bp", [u._cpp_object]) as file:
-#     file.write(0)
+with VTXWriter(mesh.comm, "poisson_u.bp", [u._cpp_object]) as file:
+    file.write(0)
 
-# print("Done")
+print("Done")
