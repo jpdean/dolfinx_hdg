@@ -3,8 +3,9 @@
 # TODO DOF transformations
 
 import dolfinx
-from dolfinx.generation import UnitSquareMesh, UnitCubeMesh
-from dolfinx.fem import assemble_scalar, FunctionSpace, Function, DirichletBC
+from dolfinx.mesh import create_submesh, create_unit_square, create_unit_cube
+from dolfinx.fem import (assemble_scalar, FunctionSpace, Function, dirichletbc,
+                         form)
 from mpi4py import MPI
 from ufl import (TrialFunction, TestFunction, inner, FacetNormal,
                  grad, dot, SpatialCoordinate, sin, pi, div)
@@ -55,10 +56,11 @@ dolfinx.cpp.log.set_log_level(dolfinx.cpp.log.LogLevel.ERROR)
 np.set_printoptions(linewidth=200)
 
 print("Set up problem")
-n = 16
+n = 8
 # Use random mesh to check permutations are working correctly 
 # mesh = create_random_mesh(n)
-mesh = UnitSquareMesh(MPI.COMM_WORLD, n, n)
+mesh = create_unit_square(MPI.COMM_WORLD, n, n)
+# mesh = create_unit_cube(MPI.COMM_WORLD, n, n, n)
 # FIXME Permutations are not working in 3D yet
 # mesh = UnitCubeMesh(MPI.COMM_WORLD, n, n, n)
 facet_dim = mesh.topology.dim - 1
@@ -66,14 +68,14 @@ facet_dim = mesh.topology.dim - 1
 mesh.topology.create_connectivity(facet_dim, 0)
 num_mesh_facets = mesh.topology.connectivity(facet_dim, 0).num_nodes
 facets = np.arange(num_mesh_facets, dtype=np.int32)
-facet_mesh = mesh.sub(facet_dim, facets)
+facet_mesh, vertex_map, geom_map = create_submesh(mesh, facet_dim, facets)
 
 k = 1
 V = FunctionSpace(mesh, ("DG", k))
 Vbar = FunctionSpace(facet_mesh, ("DG", k))
 
-V_ele_space_dim = V.dolfin_element().space_dimension()
-Vbar_ele_space_dim = Vbar.dolfin_element().space_dimension()
+V_ele_space_dim = V.element.space_dimension
+Vbar_ele_space_dim = Vbar.element.space_dimension
 
 num_cell_facets = mesh.ufl_cell().num_facets()
 num_dofs_g = len(mesh.geometry.dofmap.links(0))
@@ -303,9 +305,10 @@ def boundary(x):
 
 
 boundary_facets = locate_entities_boundary(mesh, tdim - 1, boundary)
-ubar0 = Function(Vbar)
+# ubar0 = Function(Vbar)
 dofs_bar = locate_dofs_topological(Vbar, tdim - 1, boundary_facets)
-bc_bar = DirichletBC(ubar0, dofs_bar)
+# bc_bar = DirichletBC(ubar0, dofs_bar)
+bc_bar = dirichletbc(PETSc.ScalarType(0), dofs_bar, Vbar)
 
 use_perms = True
 
@@ -313,15 +316,15 @@ print("Assemble LSH")
 Form = dolfinx.cpp.fem.Form_float64
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_A.address)], None)}
-a = Form([Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], use_perms, mesh, facet_mesh)
-A = dolfinx_hdg.assemble.assemble_matrix(a, [bc_bar])
+a = Form([Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], use_perms, mesh)
+A = dolfinx_hdg.assemble.assemble_matrix(a, mesh, facet_mesh, [bc_bar])
 A.assemble()
 
 print("Assemble RHS")
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_condensed_tensor_b.address)], None)}
-f = Form([Vbar._cpp_object], integrals, [], [], use_perms, mesh, facet_mesh)
-b = dolfinx_hdg.assemble.assemble_vector(f)
+f = Form([Vbar._cpp_object], integrals, [], [], use_perms, mesh)
+b = dolfinx_hdg.assemble.assemble_vector(f, mesh, facet_mesh)
 b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
 set_bc(b, [bc_bar])
 
@@ -333,21 +336,20 @@ solver.getPC().setType("lu")
 
 ubar = Function(Vbar)
 solver.solve(b, ubar.vector)
-
-ubar.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+ubar.x.scatter_forward()
 
 print("Back substitution")
 integrals = {dolfinx.fem.IntegralType.cell:
              ([(-1, tabulate_x.address)], None)}
-u_form = Form([V._cpp_object], integrals, [ubar._cpp_object], [], use_perms, mesh, facet_mesh)
+u_form = Form([V._cpp_object], integrals, [ubar._cpp_object], [], use_perms, mesh)
 
 u = Function(V)
-dolfinx_hdg.assemble.assemble_vector(u.vector, u_form)
+dolfinx_hdg.assemble.assemble_vector(u.vector, u_form, mesh, facet_mesh)
 
 print("Compute error")
 e = u - u_e
 e_L2 = np.sqrt(mesh.comm.allreduce(
-    assemble_scalar(inner(e, e) * dx_c), op=MPI.SUM))
+    assemble_scalar(form(inner(e, e) * dx_c)), op=MPI.SUM))
 print(f"L2-norm of error = {e_L2}")
 
 print("Write to file")

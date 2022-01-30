@@ -7,7 +7,7 @@
 #include <petscmat.h>
 #include <dolfinx/fem/DirichletBC.h>
 #include <dolfinx_hdg/assembler.h>
-#include <dolfinx/la/PETScMatrix.h>
+#include <dolfinx/la/petsc.h>
 #include <iostream>
 #include "caster_petsc.h"
 // #include <dolfinx_hdg/Form.h>
@@ -65,6 +65,8 @@ PYBIND11_MODULE(cpp, m)
 
     m.def("assemble_matrix_petsc",
           [](Mat A, const dolfinx::fem::Form<PetscScalar>& a,
+             const dolfinx::mesh::Mesh& mesh,
+             const dolfinx::mesh::Mesh& facet_mesh,
              const py::array_t<PetscScalar, py::array::c_style>& constants,
              const std::map<std::pair<dolfinx::fem::IntegralType, int>,
                             py::array_t<PetscScalar, py::array::c_style>>&
@@ -75,6 +77,7 @@ PYBIND11_MODULE(cpp, m)
             auto _coefficients = dolfinx_hdg_wrappers::py_to_cpp_coeffs(coefficients);
             dolfinx_hdg::fem::assemble_matrix(
                   dolfinx::la::petsc::Matrix::set_block_fn(A, ADD_VALUES), a,
+                  mesh, facet_mesh,
                   xtl::span(constants), _coefficients, bcs);
           });
 
@@ -84,19 +87,21 @@ PYBIND11_MODULE(cpp, m)
         "assemble_vector",
         [](pybind11::array_t<PetscScalar, pybind11::array::c_style> b,
            const dolfinx::fem::Form<PetscScalar> &L,
+           const dolfinx::mesh::Mesh& mesh,
+           const dolfinx::mesh::Mesh& facet_mesh,
            const py::array_t<PetscScalar, py::array::c_style>& constants,
            const std::map<std::pair<dolfinx::fem::IntegralType, int>,
                         py::array_t<PetscScalar, py::array::c_style>>& coefficients)
         {
             auto _coefficients = dolfinx_hdg_wrappers::py_to_cpp_coeffs(coefficients);
             dolfinx_hdg::fem::assemble_vector<PetscScalar>(
-                xtl::span(b.mutable_data(), b.size()), L, constants,
-                _coefficients);
+                xtl::span(b.mutable_data(), b.size()), L, mesh,
+                facet_mesh, constants, _coefficients);
         },
-        pybind11::arg("b"), pybind11::arg("L"), py::arg("constants"),
-        py::arg("coeffs"),
+        pybind11::arg("b"), pybind11::arg("L"), py::arg("mesh"),
+        py::arg("facet_mesh"), py::arg("constants"), py::arg("coeffs"),
         "Assemble linear form into an existing vector");
-    
+
     m.def(
       "pack_coefficients",
       [](const dolfinx::fem::Form<PetscScalar>& form)
