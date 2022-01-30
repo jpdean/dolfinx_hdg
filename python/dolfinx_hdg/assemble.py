@@ -37,7 +37,7 @@ def _(b: PETSc.Vec, L, mesh, facet_mesh,
          coeffs[1] if coeffs[1] is not None else dolfinx_hdg.cpp.pack_coefficients(L))
     with b.localForm() as b_local:
         dolfinx_hdg.cpp.assemble_vector(
-            b_local.array_w, mesh, facet_mesh, L, c[0], c[1])
+            b_local.array_w, L, mesh, facet_mesh, c[0], c[1])
     return b
 
 
