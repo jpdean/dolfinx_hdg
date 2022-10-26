@@ -11,6 +11,7 @@ from setuptools.command.build_ext import build_ext
 VERSION = "0.1.0"
 REQUIREMENTS = []
 
+
 class CMakeExtension(Extension):
     def __init__(self, name, sourcedir=''):
         Extension.__init__(self, name, sources=[])
@@ -29,7 +30,7 @@ class CMakeBuild(build_ext):
             raise RuntimeError("Windows is not supported")
         for ext in self.extensions:
             self.build_extension(ext)
-    
+
     def build_extension(self, ext):
         extdir = os.path.abspath(os.path.dirname(
             self.get_ext_fullpath(ext.name)))
@@ -43,14 +44,21 @@ class CMakeBuild(build_ext):
         build_args += ['--', '-j3']
 
         env = os.environ.copy()
-        env['CXXFLAGS'] = '{} -DVERSION_INFO=\\"{}\\"'.format(
-            env.get('CXXFLAGS', ''), self.distribution.get_version())
+
+        # default to 3 build threads
+        if "CMAKE_BUILD_PARALLEL_LEVEL" not in env:
+            env["CMAKE_BUILD_PARALLEL_LEVEL"] = "3"
+
+        import pybind11
+        env['pybind11_DIR'] = pybind11.get_cmake_dir()
+
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
         subprocess.check_call(['cmake', ext.sourcedir] + cmake_args,
                               cwd=self.build_temp, env=env)
         subprocess.check_call(['cmake', '--build', '.'] + build_args,
                               cwd=self.build_temp, env=env)
+
 
 setup(name='dolfinx_hdg',
       version=VERSION,
@@ -62,4 +70,5 @@ setup(name='dolfinx_hdg',
       ext_modules=[CMakeExtension('dolfinx_hdg.cpp')],
       cmdclass=dict(build_ext=CMakeBuild),
       install_requires=REQUIREMENTS,
+      setup_requires=["pybind11"],
       zip_safe=False)
