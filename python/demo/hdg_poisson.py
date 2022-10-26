@@ -1,362 +1,546 @@
-# FIXME Facets flipped in ubar. Something is still wrong
-# TODO Go over code now that I'm using a facet mesh and see if it can be simplified
-# TODO DOF transformations
+# TODO Add fastmath flag to numba (see custom assembler demos)
 
-import dolfinx
-from dolfinx.mesh import create_submesh, create_unit_square, create_unit_cube
-from dolfinx.fem import (assemble_scalar, FunctionSpace, Function, dirichletbc,
-                         form)
+from dolfinx.cpp.fem.petsc import insert_diagonal
+from dolfinx.cpp.la.petsc import create_matrix
+from dolfinx.cpp.la import SparsityPattern
 from mpi4py import MPI
-from ufl import (TrialFunction, TestFunction, inner, FacetNormal,
-                 grad, dot, SpatialCoordinate, sin, pi, div)
-import dolfinx_hdg.assemble
-import dolfinx_hdg.cpp
-import dolfinx
+from dolfinx import mesh, fem, jit, io
+from dolfinx.cpp.mesh import cell_num_entities
 import numpy as np
-from dolfinx.fem import locate_dofs_topological
-from dolfinx.mesh import locate_entities_boundary
-from dolfinx.fem import set_bc
-from petsc4py import PETSc
-from dolfinx.cpp.io import VTXWriter
-import numba
-import cffi
 import ufl
-import random
+from ufl import inner, grad, dot, div
+from petsc4py import PETSc
+from dolfinx.fem import IntegralType
+import cffi
+import numba
+from dolfinx.cpp.fem import Form_float64
+import sys
+from dolfinx.common import Timer, list_timings, TimingType
 
 
-def create_random_mesh(N):
-    N += 1
-    random.seed(6)
-    domain = ufl.Mesh(ufl.VectorElement("Lagrange", "triangle", 1))
-    temp_points = np.array([[x / 2, y / 2] for y in range(N) for x in range(N)])
-    order = [i for i, j in enumerate(temp_points)]
-    # random.shuffle(order)
-    points = np.zeros(temp_points.shape)
-    for i, j in enumerate(order):
-        points[j] = temp_points[i]
-    cells = []
-    for x in range(N - 1):
-        for y in range(N - 1):
-            a = N * y + x
-            # Adds two triangle cells:
-            # a+N -- a+N+1
-            #  |   / |
-            #  |  /  |
-            #  | /   |
-            #  a --- a+1
-            for cell in [[a, a + 1, a + N + 1], [a, a + N + 1, a + N]]:
-                cells.append([order[i] for i in cell])
-    points /= np.max(points)
-    return dolfinx.mesh.create_mesh(MPI.COMM_WORLD, cells, points, domain)
+def main():
+    def norm_L2(comm, v):
+        return np.sqrt(comm.allreduce(fem.assemble_scalar(
+            fem.form(ufl.inner(v, v) * ufl.dx)), op=MPI.SUM))
 
-# Creating a facet mesh causes warnings about the same facet being
-# in more than two cells, so disable warning logs
-dolfinx.cpp.log.set_log_level(dolfinx.cpp.log.LogLevel.ERROR)
+    def reorder_mesh(msh):
+        # FIXME Check this is correct
+        # FIXME For a high-order mesh, the geom has more dofs so need to modify
+        # this
+        # FIXME What about quads / hexes?
+        tdim = msh.topology.dim
+        num_cell_vertices = cell_num_entities(msh.topology.cell_type, 0)
+        c_to_v = msh.topology.connectivity(tdim, 0)
+        geom_dofmap = msh.geometry.dofmap
+        vertex_imap = msh.topology.index_map(0)
+        geom_imap = msh.geometry.index_map()
+        for i in range(0, len(c_to_v.array), num_cell_vertices):
+            topo_perm = np.argsort(vertex_imap.local_to_global(
+                c_to_v.array[i:i+num_cell_vertices]))
+            geom_perm = np.argsort(geom_imap.local_to_global(
+                geom_dofmap.array[i:i+num_cell_vertices]))
 
-np.set_printoptions(linewidth=200)
+            c_to_v.array[i:i+num_cell_vertices] = \
+                c_to_v.array[i:i+num_cell_vertices][topo_perm]
+            geom_dofmap.array[i:i+num_cell_vertices] = \
+                geom_dofmap.array[i:i+num_cell_vertices][geom_perm]
 
-print("Set up problem")
-n = 8
-# Use random mesh to check permutations are working correctly 
-# mesh = create_random_mesh(n)
-mesh = create_unit_square(MPI.COMM_WORLD, n, n)
-# mesh = create_unit_cube(MPI.COMM_WORLD, n, n, n)
-# FIXME Permutations are not working in 3D yet
-# mesh = UnitCubeMesh(MPI.COMM_WORLD, n, n, n)
-facet_dim = mesh.topology.dim - 1
-# FIXME What is the best way to get the total number of facets?
-mesh.topology.create_connectivity(facet_dim, 0)
-num_mesh_facets = mesh.topology.connectivity(facet_dim, 0).num_nodes
-facets = np.arange(num_mesh_facets, dtype=np.int32)
-facet_mesh, vertex_map, geom_map = create_submesh(mesh, facet_dim, facets)
+    def boundary(x):
+        lr = np.isclose(x[0], 0.0) | np.isclose(x[0], 1.0)
+        tb = np.isclose(x[1], 0.0) | np.isclose(x[1], 1.0)
+        lrtb = lr | tb
+        if tdim == 2:
+            return lrtb
+        else:
+            assert tdim == 3
+            fb = np.isclose(x[2], 0.0) | np.isclose(x[2], 1.0)
+            return lrtb | fb
 
-k = 1
-V = FunctionSpace(mesh, ("DG", k))
-Vbar = FunctionSpace(facet_mesh, ("DG", k))
+    def par_print(string):
+        if comm.rank == 0:
+            print(string)
+            sys.stdout.flush()
 
-V_ele_space_dim = V.element.space_dimension
-Vbar_ele_space_dim = Vbar.element.space_dimension
+    comm = MPI.COMM_WORLD
 
-num_cell_facets = mesh.ufl_cell().num_facets()
-num_dofs_g = len(mesh.geometry.dofmap.links(0))
-facet_num_dofs_g = len(facet_mesh.geometry.dofmap.links(0))
+    # n = 128
+    par_print("Create mesh")
+    with Timer("Create mesh") as t:
+        n = round((500000 * comm.size / 60)**(1 / 3))
+        par_print(f"n = {n}")
+        # msh = mesh.create_unit_square(
+        #     comm, n, n, ghost_mode=mesh.GhostMode.none)
+        msh = mesh.create_unit_cube(
+            comm, n, n, n, ghost_mode=mesh.GhostMode.none)
+        reorder_mesh(msh)
 
-u = TrialFunction(V)
-v = TestFunction(V)
-ubar = TrialFunction(Vbar)
-vbar = TestFunction(Vbar)
+    par_print("Create submesh")
+    with Timer("Create submesh") as t:
+        tdim = msh.topology.dim
+        fdim = tdim - 1
+        num_cell_facets = cell_num_entities(msh.topology.cell_type, fdim)
+        msh.topology.create_entities(fdim)
+        facet_imap = msh.topology.index_map(fdim)
+        num_facets = facet_imap.size_local + facet_imap.num_ghosts
+        facets = np.arange(num_facets, dtype=np.int32)
 
-# # TODO Use CellDiameter as this will cause recompile.
-# # FIXME CellDiameter currently not supported by my facet space
-# # branch
-h = 1 / n
-gamma = 10.0 * k**2 / h
-n = FacetNormal(mesh)
+        # NOTE Despite all facets being present in the submesh, the entity map isn't
+        # necessarily the identity in parallel
+        facet_mesh, entity_map = mesh.create_submesh(msh, fdim, facets)[0:2]
 
-dx_c = ufl.Measure("dx", domain=mesh)
-ds_c = ufl.Measure("ds", domain=mesh)
-dx_f = ufl.Measure("dx", domain=facet_mesh)
+    par_print("Create function spaces")
+    with Timer("Create function spaces") as t:
+        k = 1
+        V = fem.FunctionSpace(msh, ("Discontinuous Lagrange", k))
+        Vbar = fem.FunctionSpace(facet_mesh, ("Discontinuous Lagrange", k))
 
-a00 = inner(grad(u), grad(v)) * dx_c - \
-    (inner(u, dot(grad(v), n)) * ds_c + inner(v, dot(grad(u), n)) * ds_c) + \
-    gamma * inner(u, v) * ds_c
-a10 = inner(dot(grad(u), n) - gamma * u, vbar) * ds_c
-a11 = gamma * inner(ubar, vbar) * dx_f
+    V_ele_space_dim = V.element.space_dimension
+    Vbar_ele_space_dim = Vbar.element.space_dimension
 
-x = SpatialCoordinate(mesh)
-tdim = mesh.topology.dim
-u_e = 1
-for i in range(tdim):
-    u_e *= sin(pi * x[i])
-f = - div(grad(u_e))
+    num_cell_facets = msh.ufl_cell().num_facets()
+    num_dofs_g = len(msh.geometry.dofmap.links(0))
 
-f0 = inner(f, v) * dx_c
+    par_print("Define problem")
+    with Timer("Define problem") as t:
+        u = ufl.TrialFunction(V)
+        v = ufl.TestFunction(V)
+        ubar = ufl.TrialFunction(Vbar)
+        vbar = ufl.TestFunction(Vbar)
 
-print("Compile forms")
-# JIT compile individual blocks tabulation kernels
-# TODO See if there is an enum for cell and facet integral rather than using
-# integer
-nptype = "float64"
-ffcxtype = "double"
-form_compiler_parameters={"scalar_type": ffcxtype}
+        h = ufl.CellDiameter(msh)
+        n = ufl.FacetNormal(msh)
+        gamma = 16.0 * k**2 / h
 
-ufc_form_a00, _, _ = dolfinx.jit.ffcx_jit(
-    mesh.comm, a00, form_compiler_parameters=form_compiler_parameters)
-kernel_a00_cell = getattr(ufc_form_a00.integrals(0)[0], f"tabulate_tensor_{nptype}")
-kernel_a00_facet = getattr(ufc_form_a00.integrals(1)[0], f"tabulate_tensor_{nptype}")
+        dx_c = ufl.Measure("dx", domain=msh)
+        ds_c = ufl.Measure("ds", domain=msh)
 
-ufc_form_a10, _, _ = dolfinx.jit.ffcx_jit(
-    mesh.comm, a10, form_compiler_parameters=form_compiler_parameters)
-kernel_a10 = getattr(ufc_form_a10.integrals(1)[0], f"tabulate_tensor_{nptype}")
+        a_00 = inner(grad(u), grad(v)) * dx_c - \
+            (inner(u, dot(grad(v), n)) * ds_c +
+            inner(v, dot(grad(u), n)) * ds_c) + \
+            gamma * inner(u, v) * ds_c
+        a_10 = inner(dot(grad(u), n) - gamma * u, vbar) * ds_c
+        a_11 = gamma * inner(ubar, vbar) * ds_c
 
-ufc_form_a11, _, _ = dolfinx.jit.ffcx_jit(
-    mesh.comm, a11, form_compiler_parameters=form_compiler_parameters)
-kernel_a11 = getattr(ufc_form_a11.integrals(0)[0], f"tabulate_tensor_{nptype}")
+        x = ufl.SpatialCoordinate(msh)
+        u_e = 1
+        for i in range(tdim):
+            u_e *= ufl.sin(ufl.pi * x[i])
+        f = - div(grad(u_e))
+        L_0 = inner(f, v) * dx_c
 
-ufc_form_f0, _, _ = dolfinx.jit.ffcx_jit(
-    mesh.comm, f0, form_compiler_parameters=form_compiler_parameters)
-kernel_f0 = getattr(ufc_form_f0.integrals(0)[0], f"tabulate_tensor_{nptype}")
+    par_print("Create dofmap, inv ent map, and connectivities")
+    with Timer("Create dofmap, inv ent map, and connectivities") as t:
+        num_owned_cells = msh.topology.index_map(msh.topology.dim).size_local
+        num_cells = num_owned_cells + \
+            msh.topology.index_map(msh.topology.dim).num_ghosts
+        x_dofs = msh.geometry.dofmap.array.reshape(num_cells, num_dofs_g)
+        x = msh.geometry.x
+        Vbar_dofmap = Vbar.dofmap.list.array.reshape(num_facets, Vbar_ele_space_dim).astype(
+            np.dtype(PETSc.IntType))
 
-print("Compile numba")
-ffi = cffi.FFI()
-c_signature = numba.types.void(
-    numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
-    numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
-    numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
-    numba.types.CPointer(numba.types.double),
-    numba.types.CPointer(numba.types.int32),
-    numba.types.CPointer(numba.types.uint8))
-# FIXME See if there is a better way to pass null
-null64 = np.zeros(0, dtype=np.float64)
-null32 = np.zeros(0, dtype=np.int32)
-null8 = np.zeros(0, dtype=np.uint8)
+        inv_entity_map = np.full_like(entity_map, -1)
+        for i, f in enumerate(entity_map):
+            inv_entity_map[f] = i
 
+        c_to_f = msh.topology.connectivity(msh.topology.dim, msh.topology.dim - 1)
+        c_to_facet_mesh_f = inv_entity_map[c_to_f.array].reshape(
+            num_cells, num_cell_facets)
 
-@numba.jit(nopython=True)
-def map_A10_f_to_A10(A10_f, f):
-    A = np.zeros((num_cell_facets * Vbar_ele_space_dim,
-                  V_ele_space_dim), dtype=PETSc.ScalarType)
-    start_row = f * Vbar_ele_space_dim
-    end_row = f * Vbar_ele_space_dim + Vbar_ele_space_dim
-    A[start_row:end_row, :] += A10_f[:, :]
-    return A
+    nptype = "float64"
+    ffcxtype = "double"
 
+    par_print("JIT kernels")
+    with Timer("JIT kernels") as t:
+        # LHS forms
+        ufcx_form_00, _, _ = jit.ffcx_jit(
+            msh.comm, a_00, form_compiler_options={"scalar_type": ffcxtype})
+        kernel_00_cell = getattr(ufcx_form_00.integrals(IntegralType.cell)[0],
+                                f"tabulate_tensor_{nptype}")
+        kernel_00_facet = getattr(ufcx_form_00.integrals(IntegralType.exterior_facet)[0],
+                                f"tabulate_tensor_{nptype}")
+        ufcx_form_10, _, _ = jit.ffcx_jit(
+            msh.comm, a_10, form_compiler_options={"scalar_type": ffcxtype})
+        kernel_10 = getattr(ufcx_form_10.integrals(IntegralType.exterior_facet)[0],
+                            f"tabulate_tensor_{nptype}")
+        ufcx_form_11, _, _ = jit.ffcx_jit(
+            msh.comm, a_11, form_compiler_options={"scalar_type": ffcxtype})
+        kernel_11 = getattr(ufcx_form_11.integrals(IntegralType.exterior_facet)[0],
+                            f"tabulate_tensor_{nptype}")
 
-@numba.jit(nopython=True)
-def map_A11_f_to_A11(A11_f, f):
-    A = np.zeros((num_cell_facets * Vbar_ele_space_dim,
-                  num_cell_facets * Vbar_ele_space_dim,),
-                 dtype=PETSc.ScalarType)
-    start = f * Vbar_ele_space_dim
-    end = start + Vbar_ele_space_dim
-    A[start:end, start:end] += A11_f[:, :]
-    return A
+        # RHS forms
+        ufcx_form_0, _, _ = jit.ffcx_jit(
+            msh.comm, L_0, form_compiler_options={"scalar_type": ffcxtype})
+        kernel_0 = getattr(ufcx_form_0.integrals(IntegralType.cell)[0],
+                        f"tabulate_tensor_{nptype}")
 
+    par_print("FFI setup")
+    with Timer("FFI setup") as t:
+        # Get PETSc int and scalar types
+        if np.dtype(PETSc.ScalarType).kind == 'c':
+            complex = True
+        else:
+            complex = False
 
-@numba.jit(nopython=True)
-def compute_A00_A10(coords_, facet_permutations):
-    A00 = np.zeros((V_ele_space_dim, V_ele_space_dim), dtype=PETSc.ScalarType)
-    # FIXME How do I pass a null pointer for the last two arguments here?
-    kernel_a00_cell(ffi.from_buffer(A00),
-                    ffi.from_buffer(null64),
-                    ffi.from_buffer(null64),
-                    coords_,
-                    ffi.from_buffer(null32),
-                    ffi.from_buffer(null8))
-    A10 = np.zeros((num_cell_facets * Vbar_ele_space_dim,
-                    V_ele_space_dim), dtype=PETSc.ScalarType)
+        scalar_size = np.dtype(PETSc.ScalarType).itemsize
+        index_size = np.dtype(PETSc.IntType).itemsize
 
-    # FIXME Is there a neater way to do this?
-    facet = np.zeros((1), dtype=np.int32)
-    facet_permutation = np.zeros((2), dtype=np.uint8)
-    for i in range(num_cell_facets):
-        facet[0] = i
-        facet_permutation[0] = facet_permutations[2 * i]
-        facet_permutation[1] = facet_permutations[2 * i + 1]
-        # FIXME When FEniCS main is merged, this the facet permutation
-        # can be null here as permutations were removed from exterior
-        # facet integrals
-        kernel_a00_facet(ffi.from_buffer(A00),
-                         ffi.from_buffer(null64),
-                         ffi.from_buffer(null64),
-                         coords_,
-                         ffi.from_buffer(facet),
-                         ffi.from_buffer(facet_permutation))
-        A10_f = np.zeros((Vbar_ele_space_dim, V_ele_space_dim),
-                         dtype=PETSc.ScalarType)
-        kernel_a10(ffi.from_buffer(A10_f),
-                   ffi.from_buffer(null64),
-                   ffi.from_buffer(null64),
-                   coords_,
-                   ffi.from_buffer(facet),
-                   ffi.from_buffer(facet_permutation))
-        A10 += map_A10_f_to_A10(A10_f, i)
-    return A00, A10
+        if index_size == 8:
+            c_int_t = "int64_t"
+        elif index_size == 4:
+            c_int_t = "int32_t"
+        else:
+            raise RuntimeError(f"Cannot translate PETSc index size into a C type, index_size: {index_size}.")
 
+        if complex and scalar_size == 16:
+            c_scalar_t = "double _Complex"
+        elif complex and scalar_size == 8:
+            c_scalar_t = "float _Complex"
+        elif not complex and scalar_size == 8:
+            c_scalar_t = "double"
+        elif not complex and scalar_size == 4:
+            c_scalar_t = "float"
+        else:
+            raise RuntimeError(
+                f"Cannot translate PETSc scalar type to a C type, complex: {complex} size: {scalar_size}.")
 
-@numba.jit(nopython=True)
-def compute_A11(coords_):
-    A11 = np.zeros((num_cell_facets * Vbar_ele_space_dim,
-                    num_cell_facets * Vbar_ele_space_dim),
-                    dtype=PETSc.ScalarType)
-    coords = numba.carray(coords_,
-                          (3 * (num_dofs_g +
-                                num_cell_facets * facet_num_dofs_g)),
-                          dtype=PETSc.ScalarType)
+        ffi = cffi.FFI()
+        # Get MatSetValuesLocal from PETSc available via cffi in ABI mode
+        ffi.cdef("""int MatSetValuesLocal(void* mat, {0} nrow, const {0}* irow,
+                                        {0} ncol, const {0}* icol, const {1}* y, int addv);
+        """.format(c_int_t, c_scalar_t))
+        petsc_lib_cffi = fem.petsc.load_petsc_lib(ffi.dlopen)
+        MatSetValues_abi = petsc_lib_cffi.MatSetValuesLocal
 
-    for i in range(num_cell_facets):
-        offset = 3 * (num_dofs_g + i * facet_num_dofs_g)
-        facet_coords = coords[offset:offset + 3 * facet_num_dofs_g]
+        # FIXME See if there is a better way to pass null
+        null64 = np.zeros(0, dtype=np.float64)
+        null32 = np.zeros(0, dtype=np.int32)
+        null8 = np.zeros(0, dtype=np.uint8)
+
+    @numba.njit(fastmath=True)
+    def compute_A11(coords):
+        A11 = np.zeros((num_cell_facets * Vbar_ele_space_dim,
+                        num_cell_facets * Vbar_ele_space_dim),
+                       dtype=PETSc.ScalarType)
         A11_f = np.zeros((Vbar_ele_space_dim, Vbar_ele_space_dim),
                          dtype=PETSc.ScalarType)
-        kernel_a11(ffi.from_buffer(A11_f),
-                   ffi.from_buffer(null64),
-                   ffi.from_buffer(null64),
-                   ffi.from_buffer(facet_coords),
-                   ffi.from_buffer(null32),
-                   ffi.from_buffer(null8))
-        A11 += map_A11_f_to_A11(A11_f, i)
-    return A11
 
+        entity_local_index = np.zeros((1), dtype=np.int32)
+        for local_f in range(num_cell_facets):
+            entity_local_index[0] = local_f
+            A11_f.fill(0.0)
 
-@numba.cfunc(c_signature, nopython=True)
-def tabulate_condensed_tensor_A(A_, w_, c_, coords_, entity_local_index,
-                                facet_permutations):
-    A = numba.carray(A_, (num_cell_facets * Vbar_ele_space_dim,
-                          num_cell_facets * Vbar_ele_space_dim),
-                     dtype=PETSc.ScalarType)
+            kernel_11(ffi.from_buffer(A11_f),
+                      ffi.from_buffer(null64),
+                      ffi.from_buffer(null64),
+                      ffi.from_buffer(coords),
+                      ffi.from_buffer(entity_local_index),
+                      ffi.from_buffer(null8))
+            # Insert in correct location
+            start = local_f * Vbar_ele_space_dim
+            end = start + Vbar_ele_space_dim
+            A11[start:end, start:end] += A11_f[:, :]
+        return A11
 
-    A00, A10 = compute_A00_A10(coords_, facet_permutations)
-    A11 = compute_A11(coords_)
+    @numba.njit(fastmath=True)
+    def compute_A00_A10(coords):
+        A00 = np.zeros((V_ele_space_dim, V_ele_space_dim),
+                       dtype=PETSc.ScalarType)
+        A10 = np.zeros((num_cell_facets * Vbar_ele_space_dim,
+                        V_ele_space_dim), dtype=PETSc.ScalarType)
+        A10_f = np.zeros((Vbar_ele_space_dim, V_ele_space_dim),
+                         dtype=PETSc.ScalarType)
 
-    A += A11 - A10 @ np.linalg.solve(A00, A10.T)
+        kernel_00_cell(ffi.from_buffer(A00),
+                       ffi.from_buffer(null64),
+                       ffi.from_buffer(null64),
+                       ffi.from_buffer(coords),
+                       ffi.from_buffer(null32),
+                       ffi.from_buffer(null8))
+        # FIXME Is there a neater way to do this?
+        entity_local_index = np.zeros((1), dtype=np.int32)
+        for local_f in range(num_cell_facets):
+            entity_local_index[0] = local_f
+            A10_f.fill(0.0)
 
+            kernel_00_facet(ffi.from_buffer(A00),
+                            ffi.from_buffer(null64),
+                            ffi.from_buffer(null64),
+                            ffi.from_buffer(coords),
+                            ffi.from_buffer(entity_local_index),
+                            ffi.from_buffer(null8))
+            kernel_10(ffi.from_buffer(A10_f),
+                      ffi.from_buffer(null64),
+                      ffi.from_buffer(null64),
+                      ffi.from_buffer(coords),
+                      ffi.from_buffer(entity_local_index),
+                      ffi.from_buffer(null8))
+            start_row = local_f * Vbar_ele_space_dim
+            end_row = start_row + Vbar_ele_space_dim
+            A10[start_row:end_row, :] += A10_f[:, :]
+        return A00, A10
 
-@numba.cfunc(c_signature, nopython=True)
-def tabulate_condensed_tensor_b(b_, w_, c_, coords_, entity_local_index,
-                                facet_permutations):
-    b = numba.carray(b_, (num_cell_facets * Vbar_ele_space_dim),
-                     dtype=PETSc.ScalarType)
+    @numba.njit(fastmath=True)
+    def sink(*args):
+        pass
 
-    b0 = np.zeros((V_ele_space_dim), dtype=PETSc.ScalarType)
-    # TODO Pass nullptr for last two parameters
-    kernel_f0(ffi.from_buffer(b0),
-              ffi.from_buffer(null64),
-              ffi.from_buffer(null64),
-              coords_,
-              ffi.from_buffer(null32),
-              ffi.from_buffer(null8))
+    @numba.njit(fastmath=True)
+    def assemble_matrix_hdg(mat, x_dofs, x, dofmap, num_cells, bc_dofs_marker, mat_set, mode):
+        # TODO BCs
+        coords = np.zeros((num_dofs_g, 3))
+        A_local = np.zeros((num_cell_facets * Vbar_ele_space_dim,
+                            num_cell_facets * Vbar_ele_space_dim),
+                           dtype=PETSc.ScalarType)
+        A_local_f = np.zeros((Vbar_ele_space_dim, Vbar_ele_space_dim),
+                             dtype=PETSc.ScalarType)
+        for cell in range(num_cells):
+            for j in range(num_dofs_g):
+                coords[j] = x[x_dofs[cell, j], :]
+            A_local.fill(0.0)
 
-    A00, A10 = compute_A00_A10(coords_, facet_permutations)
-    b -= A10 @ np.linalg.solve(A00, b0)
+            # FIXME Seems silly to assemble this together only to split
+            # again later
+            A00, A10 = compute_A00_A10(coords)
+            A_local += compute_A11(coords) - A10 @ np.linalg.solve(A00, A10.T)
 
+            cell_facets = c_to_facet_mesh_f[cell]
+            for local_facet_0, facet_0 in enumerate(cell_facets):
+                for local_facet_1, facet_1 in enumerate(cell_facets):
+                    dofs_0 = dofmap[facet_0, :]
+                    dofs_1 = dofmap[facet_1, :]
 
-@numba.cfunc(c_signature, nopython=True)
-def tabulate_x(x_, w_, c_, coords_, entity_local_index,
-               facet_permutations):
-    x = numba.carray(x_, (V_ele_space_dim), dtype=PETSc.ScalarType)
-    xbar = numba.carray(w_, (num_cell_facets * Vbar_ele_space_dim),
-                        dtype=PETSc.ScalarType)
-    A00, A10 = compute_A00_A10(coords_, facet_permutations)
-    b0 = np.zeros((V_ele_space_dim), dtype=PETSc.ScalarType)
-    # FIXME Pass nullptr for last two parameters
-    kernel_f0(ffi.from_buffer(b0),
-              ffi.from_buffer(null64),
-              ffi.from_buffer(null64),
-              coords_,
-              ffi.from_buffer(null32),
-              ffi.from_buffer(null8))
-    x += np.linalg.solve(A00, b0 - A10.T @ xbar)
+                    # FIXME Can this be done without copying?
+                    A_local_f.fill(0.0)
+                    A_local_f += A_local[
+                        local_facet_0 * Vbar_ele_space_dim:
+                        local_facet_0 * Vbar_ele_space_dim + Vbar_ele_space_dim,
+                        local_facet_1 * Vbar_ele_space_dim:
+                        local_facet_1 * Vbar_ele_space_dim + Vbar_ele_space_dim]
 
+                    # FIXME Need to add block size
+                    for i, dof in enumerate(dofs_0):
+                        if bc_dofs_marker[dof]:
+                            A_local_f[i, :] = 0.0
 
-# Boundary conditions
-print("Boundary conditions")
+                    for i, dof in enumerate(dofs_1):
+                        if bc_dofs_marker[dof]:
+                            A_local_f[:, i] = 0.0
 
+                    mat_set(mat, Vbar_ele_space_dim, ffi.from_buffer(dofs_0),
+                            Vbar_ele_space_dim, ffi.from_buffer(dofs_1),
+                            ffi.from_buffer(A_local_f), mode)
 
-def boundary(x):
-    lr = np.logical_or(np.isclose(x[0], 0.0), np.isclose(x[0], 1.0))
-    tb = np.logical_or(np.isclose(x[1], 0.0), np.isclose(x[1], 1.0))
-    lrtb = np.logical_or(lr, tb)
-    if tdim == 2:
-        return lrtb
-    else:
-        fb = np.logical_or(np.isclose(x[2], 0.0), np.isclose(x[2], 1.0))
-        return np.logical_or(lrtb, fb)
+        sink(A_local, A_local_f)
 
+    @numba.njit(fastmath=True)
+    def assemble_vector_hdg(b, x_dofs, x, dofmap, num_cells):
+        coords = np.zeros((num_dofs_g, 3))
+        b_local = np.zeros(num_cell_facets * Vbar_ele_space_dim,
+                           dtype=PETSc.ScalarType)
+        b_0 = np.zeros(V_ele_space_dim, dtype=PETSc.ScalarType)
+        b_local_f = np.zeros(Vbar_ele_space_dim, dtype=PETSc.ScalarType)
+        for cell in range(num_cells):
+            for j in range(num_dofs_g):
+                coords[j] = x[x_dofs[cell, j], :]
+            b_local.fill(0.0)
 
-boundary_facets = locate_entities_boundary(mesh, tdim - 1, boundary)
-# ubar0 = Function(Vbar)
-dofs_bar = locate_dofs_topological(Vbar, tdim - 1, boundary_facets)
-# bc_bar = DirichletBC(ubar0, dofs_bar)
-bc_bar = dirichletbc(PETSc.ScalarType(0), dofs_bar, Vbar)
+            b_0.fill(0.0)
+            kernel_0(ffi.from_buffer(b_0),
+                     ffi.from_buffer(null64),
+                     ffi.from_buffer(null64),
+                     ffi.from_buffer(coords),
+                     ffi.from_buffer(null32),
+                     ffi.from_buffer(null8))
 
-use_perms = True
+            A00, A10 = compute_A00_A10(coords)
+            b_local -= A10 @ np.linalg.solve(A00, b_0)
 
-print("Assemble LSH")
-Form = dolfinx.cpp.fem.Form_float64
-integrals = {dolfinx.fem.IntegralType.cell:
-             ([(-1, tabulate_condensed_tensor_A.address)], None)}
-a = Form([Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], use_perms, mesh)
-A = dolfinx_hdg.assemble.assemble_matrix(a, mesh, facet_mesh, [bc_bar])
-A.assemble()
+            cell_facets = c_to_facet_mesh_f[cell]
+            for local_facet, facet in enumerate(cell_facets):
+                dofs = dofmap[facet, :]
 
-print("Assemble RHS")
-integrals = {dolfinx.fem.IntegralType.cell:
-             ([(-1, tabulate_condensed_tensor_b.address)], None)}
-f = Form([Vbar._cpp_object], integrals, [], [], use_perms, mesh)
-b = dolfinx_hdg.assemble.assemble_vector(f, mesh, facet_mesh)
-b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-set_bc(b, [bc_bar])
+                b_local_f.fill(0.0)
+                b_local_f += b_local[
+                    local_facet * Vbar_ele_space_dim:
+                    local_facet * Vbar_ele_space_dim + Vbar_ele_space_dim]
+                b[dofs] += b_local_f
+        sink(b_local, b_local_f)
 
-print("Solve")
-solver = PETSc.KSP().create(mesh.comm)
-solver.setOperators(A)
-solver.setType("preonly")
-solver.getPC().setType("lu")
+    c_signature = numba.types.void(
+        numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
+        numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
+        numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
+        numba.types.CPointer(numba.types.double),
+        numba.types.CPointer(numba.types.int32),
+        numba.types.CPointer(numba.types.uint8))
 
-ubar = Function(Vbar)
-solver.solve(b, ubar.vector)
-ubar.x.scatter_forward()
+    @numba.cfunc(c_signature, nopython=True, fastmath=True)
+    def backsub(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
+        x = numba.carray(x_, V_ele_space_dim, dtype=PETSc.ScalarType)
+        coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
+        u_bar = numba.carray(w_, Vbar_ele_space_dim * num_cell_facets,
+                             dtype=PETSc.ScalarType)
+        b_0 = np.zeros(V_ele_space_dim, dtype=PETSc.ScalarType)
+        # TODO Pass nullptr for last two parameters
+        kernel_0(ffi.from_buffer(b_0),
+                 ffi.from_buffer(null64),
+                 ffi.from_buffer(null64),
+                 ffi.from_buffer(coords),
+                 ffi.from_buffer(null32),
+                 ffi.from_buffer(null8))
+        A00, A10 = compute_A00_A10(coords)
 
-print("Back substitution")
-integrals = {dolfinx.fem.IntegralType.cell:
-             ([(-1, tabulate_x.address)], None)}
-u_form = Form([V._cpp_object], integrals, [ubar._cpp_object], [], use_perms, mesh)
+        x += np.linalg.solve(A00, b_0 - A10.T @ u_bar)
 
-u = Function(V)
-dolfinx_hdg.assemble.assemble_vector(u.vector, u_form, mesh, facet_mesh)
+    par_print("Sparsity")
 
-print("Compute error")
-e = u - u_e
-e_L2 = np.sqrt(mesh.comm.allreduce(
-    assemble_scalar(form(inner(e, e) * dx_c)), op=MPI.SUM))
-print(f"L2-norm of error = {e_L2}")
+    with Timer("Sparsity") as t:
+        sp = SparsityPattern(msh.comm, [Vbar.dofmap.index_map, Vbar.dofmap.index_map],
+                            [Vbar.dofmap.index_map_bs, Vbar.dofmap.index_map_bs])
 
-print("Write to file")
-with VTXWriter(mesh.comm, "poisson_ubar.bp", [ubar._cpp_object]) as file:
-    file.write(0)
+        # FIXME THIS WILL BE SLOW. pybind?
+        def create_sparsity_pattern():
+            for cell in range(num_cells):
+                cell_facets = c_to_facet_mesh_f[cell]
+                for facet_0 in cell_facets:
+                    dofs_0 = Vbar_dofmap[facet_0].astype(np.int32)
+                    for facet_1 in cell_facets:
+                        dofs_1 = Vbar_dofmap[facet_1].astype(np.int32)
+                        sp.insert(dofs_0, dofs_1)
 
-with VTXWriter(mesh.comm, "poisson_u.bp", [u._cpp_object]) as file:
-    file.write(0)
+        create_sparsity_pattern()
+        sp.assemble()
 
-print("Done")
+    par_print("BC")
+    with Timer("BC") as t:
+        msh_boundary_facets = mesh.locate_entities_boundary(msh, fdim, boundary)
+        facet_mesh_boundary_facets = [inv_entity_map[facet]
+                                    for facet in msh_boundary_facets]
+        bc_dofs = fem.locate_dofs_topological(
+            Vbar, fdim, facet_mesh_boundary_facets)
+        num_dofs_Vbar = (Vbar.dofmap.index_map.size_local +
+                        Vbar.dofmap.index_map.num_ghosts) * V.dofmap.index_map_bs
+        bc_dofs_marker = np.full(num_dofs_Vbar, False, dtype=np.bool8)
+        bc_dofs_marker[bc_dofs] = True
+        bc = fem.dirichletbc(PETSc.ScalarType(0.0), bc_dofs, Vbar)
+
+    par_print("Assemble mat")
+    with Timer("Assemble mat") as t:
+        A = create_matrix(msh.comm, sp)
+
+        assemble_matrix_hdg(
+            A.handle, x_dofs, x, Vbar_dofmap, num_owned_cells, bc_dofs_marker,
+            MatSetValues_abi, PETSc.InsertMode.ADD_VALUES)
+        # TODO
+        A.assemblyBegin(PETSc.Mat.AssemblyType.FLUSH)
+        A.assemblyEnd(PETSc.Mat.AssemblyType.FLUSH)
+        insert_diagonal(A, Vbar._cpp_object, [bc], 1.0)
+        A.assemble()
+
+    par_print("Assemble vec")
+    with Timer("Assemble vec") as t:
+        b_func = fem.Function(Vbar)
+
+        assemble_vector_hdg(b_func.x.array, x_dofs, x,
+                            Vbar_dofmap, num_owned_cells)
+        b = b_func.vector
+        b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+        fem.petsc.set_bc(b, [bc])
+
+    par_print("Setup solver")
+    with Timer("Setup solver") as t:
+        use_direct_solver = False
+
+        if use_direct_solver:
+            ksp = PETSc.KSP().create(msh.comm)
+            ksp.setOperators(A)
+            ksp.setType("preonly")
+            ksp.getPC().setType("lu")
+            ksp.getPC().setFactorSolverType("superlu_dist")
+        else:
+            opts = PETSc.Options()
+            # Solver (Use conjugate gradient)
+            opts['ksp_type'] = 'cg'
+            opts['ksp_rtol'] = '1.0e-8'
+            opts['ksp_view'] = None
+            opts['ksp_monitor'] = None
+            opts['pc_type'] = 'hypre'
+            opts['pc_hypre_type'] = 'boomeramg'
+            opts['pc_hypre_boomeramg_strong_threshold'] = 0.7
+            opts['pc_hypre_boomeramg_agg_nl'] = 4
+            opts['pc_hypre_boomeramg_agg_num_paths'] = 2
+
+            PETSc.Options().view()
+
+            ksp = PETSc.KSP().create(msh.comm)
+            ksp.setOperators(A)
+            ksp.setFromOptions()
+
+    par_print("Solve")
+    with Timer("Solve") as t:
+        # Compute solution
+        ubar = fem.Function(Vbar)
+        import time
+        start = time.time()
+        ksp.solve(b, ubar.vector)
+        end = time.time()
+        par_print(f"solve time = {end - start}")
+        ubar.x.scatter_forward()
+
+    # par_print("Write")
+
+    # with io.VTXWriter(msh.comm, "ubar.bp", ubar) as f:
+    #     f.write(0.0)
+
+    par_print("Create form")
+    with Timer("Create form") as t:
+        # TODO Check with custom integration entities that this actually runs
+        # over all cells
+        integrals = {fem.IntegralType.cell: {-1: (backsub.address, [])}}
+        u_form = Form_float64([V._cpp_object], integrals, [], [], False, None)
+
+    u = fem.Function(V)
+
+    # TODO Use numba
+    par_print("Pack coeffs")
+    with Timer("Pack coeffs") as t:
+        coeffs = np.zeros((num_cells, Vbar_ele_space_dim * num_cell_facets))
+        for cell in range(num_cells):
+            cell_facets = c_to_facet_mesh_f[cell]
+            for local_facet, facet in enumerate(cell_facets):
+                dofs = Vbar_dofmap[facet]
+                coeffs[
+                    cell,
+                    Vbar_ele_space_dim * local_facet:
+                    Vbar_ele_space_dim * local_facet + Vbar_ele_space_dim] = \
+                    ubar.x.array[dofs]
+        coeffs = {(IntegralType.cell, -1): coeffs}
+
+    par_print("Assemble vec")
+    with Timer("Assemble vec") as t:
+        fem.assemble_vector(u.x.array, u_form, coeffs=coeffs)
+        u.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
+                            mode=PETSc.ScatterMode.REVERSE)
+
+    # par_print("Write")
+    # with io.VTXWriter(msh.comm, "u.bp", u) as f:
+    #     f.write(0.0)
+
+    par_print("Compute error")
+    with Timer("Compute error") as t:
+        e_L2 = norm_L2(msh.comm, u - u_e)
+    if msh.comm.rank == 0:
+        print(f"e_L2 = {e_L2}")
+
+    par_print(f"total num dofs V = {V.dofmap.index_map.size_global}")
+    par_print(f"total num dofs Vbar = {Vbar.dofmap.index_map.size_global}")
+    par_print(f"total dofs = {V.dofmap.index_map.size_global + Vbar.dofmap.index_map.size_global}")
+    par_print(f"total dofs per process = {(V.dofmap.index_map.size_global + Vbar.dofmap.index_map.size_global) / comm.size}")
+
+if __name__ == "__main__":
+    # import cProfile
+    # cProfile.run(
+    #     "main()", filename=f"out_python_{MPI.COMM_WORLD.rank}.profile")
+    with Timer("TOTAL") as t:
+        main()
+    list_timings(MPI.COMM_WORLD, [TimingType.wall, TimingType.user])
+
