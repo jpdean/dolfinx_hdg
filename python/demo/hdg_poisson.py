@@ -283,87 +283,87 @@ def main():
     def sink(*args):
         pass
 
-    @numba.njit(fastmath=True)
-    def assemble_matrix_hdg(mat, x_dofs, x, dofmap, num_cells, bc_dofs_marker, mat_set, mode):
-        # TODO BCs
-        coords = np.zeros((num_dofs_g, 3))
-        A_local = np.zeros((num_cell_facets * Vbar_ele_space_dim,
-                            num_cell_facets * Vbar_ele_space_dim),
-                           dtype=PETSc.ScalarType)
-        A_local_f = np.zeros((Vbar_ele_space_dim, Vbar_ele_space_dim),
-                             dtype=PETSc.ScalarType)
-        for cell in range(num_cells):
-            for j in range(num_dofs_g):
-                coords[j] = x[x_dofs[cell, j], :]
-            A_local.fill(0.0)
+    # @numba.njit(fastmath=True)
+    # def assemble_matrix_hdg(mat, x_dofs, x, dofmap, num_cells, bc_dofs_marker, mat_set, mode):
+    #     # TODO BCs
+    #     coords = np.zeros((num_dofs_g, 3))
+    #     A_local = np.zeros((num_cell_facets * Vbar_ele_space_dim,
+    #                         num_cell_facets * Vbar_ele_space_dim),
+    #                        dtype=PETSc.ScalarType)
+    #     A_local_f = np.zeros((Vbar_ele_space_dim, Vbar_ele_space_dim),
+    #                          dtype=PETSc.ScalarType)
+    #     for cell in range(num_cells):
+    #         for j in range(num_dofs_g):
+    #             coords[j] = x[x_dofs[cell, j], :]
+    #         A_local.fill(0.0)
 
-            # FIXME Seems silly to assemble this together only to split
-            # again later
-            A00, A10 = compute_A00_A10(coords)
-            A_local += compute_A11(coords) - A10 @ np.linalg.solve(A00, A10.T)
+    #         # FIXME Seems silly to assemble this together only to split
+    #         # again later
+    #         A00, A10 = compute_A00_A10(coords)
+    #         A_local += compute_A11(coords) - A10 @ np.linalg.solve(A00, A10.T)
 
-            cell_facets = c_to_facet_mesh_f[cell]
-            for local_facet_0, facet_0 in enumerate(cell_facets):
-                for local_facet_1, facet_1 in enumerate(cell_facets):
-                    dofs_0 = dofmap[facet_0, :]
-                    dofs_1 = dofmap[facet_1, :]
+    #         cell_facets = c_to_facet_mesh_f[cell]
+    #         for local_facet_0, facet_0 in enumerate(cell_facets):
+    #             for local_facet_1, facet_1 in enumerate(cell_facets):
+    #                 dofs_0 = dofmap[facet_0, :]
+    #                 dofs_1 = dofmap[facet_1, :]
 
-                    # FIXME Can this be done without copying?
-                    A_local_f.fill(0.0)
-                    A_local_f += A_local[
-                        local_facet_0 * Vbar_ele_space_dim:
-                        local_facet_0 * Vbar_ele_space_dim + Vbar_ele_space_dim,
-                        local_facet_1 * Vbar_ele_space_dim:
-                        local_facet_1 * Vbar_ele_space_dim + Vbar_ele_space_dim]
+    #                 # FIXME Can this be done without copying?
+    #                 A_local_f.fill(0.0)
+    #                 A_local_f += A_local[
+    #                     local_facet_0 * Vbar_ele_space_dim:
+    #                     local_facet_0 * Vbar_ele_space_dim + Vbar_ele_space_dim,
+    #                     local_facet_1 * Vbar_ele_space_dim:
+    #                     local_facet_1 * Vbar_ele_space_dim + Vbar_ele_space_dim]
 
-                    # FIXME Need to add block size
-                    for i, dof in enumerate(dofs_0):
-                        if bc_dofs_marker[dof]:
-                            A_local_f[i, :] = 0.0
+    #                 # FIXME Need to add block size
+    #                 for i, dof in enumerate(dofs_0):
+    #                     if bc_dofs_marker[dof]:
+    #                         A_local_f[i, :] = 0.0
 
-                    for i, dof in enumerate(dofs_1):
-                        if bc_dofs_marker[dof]:
-                            A_local_f[:, i] = 0.0
+    #                 for i, dof in enumerate(dofs_1):
+    #                     if bc_dofs_marker[dof]:
+    #                         A_local_f[:, i] = 0.0
 
-                    mat_set(mat, Vbar_ele_space_dim, ffi.from_buffer(dofs_0),
-                            Vbar_ele_space_dim, ffi.from_buffer(dofs_1),
-                            ffi.from_buffer(A_local_f), mode)
+    #                 mat_set(mat, Vbar_ele_space_dim, ffi.from_buffer(dofs_0),
+    #                         Vbar_ele_space_dim, ffi.from_buffer(dofs_1),
+    #                         ffi.from_buffer(A_local_f), mode)
 
-        sink(A_local, A_local_f)
+    #     sink(A_local, A_local_f)
 
-    @numba.njit(fastmath=True)
-    def assemble_vector_hdg(b, x_dofs, x, dofmap, num_cells):
-        coords = np.zeros((num_dofs_g, 3))
-        b_local = np.zeros(num_cell_facets * Vbar_ele_space_dim,
-                           dtype=PETSc.ScalarType)
-        b_0 = np.zeros(V_ele_space_dim, dtype=PETSc.ScalarType)
-        b_local_f = np.zeros(Vbar_ele_space_dim, dtype=PETSc.ScalarType)
-        for cell in range(num_cells):
-            for j in range(num_dofs_g):
-                coords[j] = x[x_dofs[cell, j], :]
-            b_local.fill(0.0)
+    # @numba.njit(fastmath=True)
+    # def assemble_vector_hdg(b, x_dofs, x, dofmap, num_cells):
+    #     coords = np.zeros((num_dofs_g, 3))
+    #     b_local = np.zeros(num_cell_facets * Vbar_ele_space_dim,
+    #                        dtype=PETSc.ScalarType)
+    #     b_0 = np.zeros(V_ele_space_dim, dtype=PETSc.ScalarType)
+    #     b_local_f = np.zeros(Vbar_ele_space_dim, dtype=PETSc.ScalarType)
+    #     for cell in range(num_cells):
+    #         for j in range(num_dofs_g):
+    #             coords[j] = x[x_dofs[cell, j], :]
+    #         b_local.fill(0.0)
 
-            b_0.fill(0.0)
-            kernel_0(ffi.from_buffer(b_0),
-                     ffi.from_buffer(null64),
-                     ffi.from_buffer(null64),
-                     ffi.from_buffer(coords),
-                     ffi.from_buffer(null32),
-                     ffi.from_buffer(null8))
+    #         b_0.fill(0.0)
+    #         kernel_0(ffi.from_buffer(b_0),
+    #                  ffi.from_buffer(null64),
+    #                  ffi.from_buffer(null64),
+    #                  ffi.from_buffer(coords),
+    #                  ffi.from_buffer(null32),
+    #                  ffi.from_buffer(null8))
 
-            A00, A10 = compute_A00_A10(coords)
-            b_local -= A10 @ np.linalg.solve(A00, b_0)
+    #         A00, A10 = compute_A00_A10(coords)
+    #         b_local -= A10 @ np.linalg.solve(A00, b_0)
 
-            cell_facets = c_to_facet_mesh_f[cell]
-            for local_facet, facet in enumerate(cell_facets):
-                dofs = dofmap[facet, :]
+    #         cell_facets = c_to_facet_mesh_f[cell]
+    #         for local_facet, facet in enumerate(cell_facets):
+    #             dofs = dofmap[facet, :]
 
-                b_local_f.fill(0.0)
-                b_local_f += b_local[
-                    local_facet * Vbar_ele_space_dim:
-                    local_facet * Vbar_ele_space_dim + Vbar_ele_space_dim]
-                b[dofs] += b_local_f
-        sink(b_local, b_local_f)
+    #             b_local_f.fill(0.0)
+    #             b_local_f += b_local[
+    #                 local_facet * Vbar_ele_space_dim:
+    #                 local_facet * Vbar_ele_space_dim + Vbar_ele_space_dim]
+    #             b[dofs] += b_local_f
+    #     sink(b_local, b_local_f)
 
     c_signature = numba.types.void(
         numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
@@ -372,6 +372,10 @@ def main():
         numba.types.CPointer(numba.types.double),
         numba.types.CPointer(numba.types.int32),
         numba.types.CPointer(numba.types.uint8))
+
+    @numba.cfunc(c_signature, nopython=True, fastmath=True)
+    def tabulate_tensor(A_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
+        pass
 
     @numba.cfunc(c_signature, nopython=True, fastmath=True)
     def backsub(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
@@ -391,150 +395,157 @@ def main():
 
         x += np.linalg.solve(A00, b_0 - A10.T @ u_bar)
 
-    par_print("Sparsity")
 
-    with Timer("Sparsity") as t:
-        sp = SparsityPattern(msh.comm, [Vbar.dofmap.index_map, Vbar.dofmap.index_map],
-                            [Vbar.dofmap.index_map_bs, Vbar.dofmap.index_map_bs])
+    integrals = {fem.IntegralType.cell: {-1: (tabulate_tensor.address, [])}}
+    # HACK: Pass empty entity maps to prevent Form complaining about different
+    # meshes
+    u_form = Form_float64(
+        [Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], False, msh,
+        entity_maps={facet_mesh: []})
 
-        # FIXME THIS WILL BE SLOW. pybind?
-        def create_sparsity_pattern():
-            for cell in range(num_cells):
-                cell_facets = c_to_facet_mesh_f[cell]
-                for facet_0 in cell_facets:
-                    dofs_0 = Vbar_dofmap[facet_0].astype(np.int32)
-                    for facet_1 in cell_facets:
-                        dofs_1 = Vbar_dofmap[facet_1].astype(np.int32)
-                        sp.insert(dofs_0, dofs_1)
+    # par_print("Sparsity")
+    # with Timer("Sparsity") as t:
+    #     sp = SparsityPattern(msh.comm, [Vbar.dofmap.index_map, Vbar.dofmap.index_map],
+    #                         [Vbar.dofmap.index_map_bs, Vbar.dofmap.index_map_bs])
 
-        create_sparsity_pattern()
-        sp.assemble()
+    #     # FIXME THIS WILL BE SLOW. pybind?
+    #     def create_sparsity_pattern():
+    #         for cell in range(num_cells):
+    #             cell_facets = c_to_facet_mesh_f[cell]
+    #             for facet_0 in cell_facets:
+    #                 dofs_0 = Vbar_dofmap[facet_0].astype(np.int32)
+    #                 for facet_1 in cell_facets:
+    #                     dofs_1 = Vbar_dofmap[facet_1].astype(np.int32)
+    #                     sp.insert(dofs_0, dofs_1)
 
-    par_print("BC")
-    with Timer("BC") as t:
-        msh_boundary_facets = mesh.locate_entities_boundary(msh, fdim, boundary)
-        facet_mesh_boundary_facets = [inv_entity_map[facet]
-                                    for facet in msh_boundary_facets]
-        bc_dofs = fem.locate_dofs_topological(
-            Vbar, fdim, facet_mesh_boundary_facets)
-        num_dofs_Vbar = (Vbar.dofmap.index_map.size_local +
-                        Vbar.dofmap.index_map.num_ghosts) * V.dofmap.index_map_bs
-        bc_dofs_marker = np.full(num_dofs_Vbar, False, dtype=np.bool8)
-        bc_dofs_marker[bc_dofs] = True
-        bc = fem.dirichletbc(PETSc.ScalarType(0.0), bc_dofs, Vbar)
+    #     create_sparsity_pattern()
+    #     sp.assemble()
 
-    par_print("Assemble mat")
-    with Timer("Assemble mat") as t:
-        A = create_matrix(msh.comm, sp)
+    # par_print("BC")
+    # with Timer("BC") as t:
+    #     msh_boundary_facets = mesh.locate_entities_boundary(msh, fdim, boundary)
+    #     facet_mesh_boundary_facets = [inv_entity_map[facet]
+    #                                 for facet in msh_boundary_facets]
+    #     bc_dofs = fem.locate_dofs_topological(
+    #         Vbar, fdim, facet_mesh_boundary_facets)
+    #     num_dofs_Vbar = (Vbar.dofmap.index_map.size_local +
+    #                     Vbar.dofmap.index_map.num_ghosts) * V.dofmap.index_map_bs
+    #     bc_dofs_marker = np.full(num_dofs_Vbar, False, dtype=np.bool8)
+    #     bc_dofs_marker[bc_dofs] = True
+    #     bc = fem.dirichletbc(PETSc.ScalarType(0.0), bc_dofs, Vbar)
 
-        assemble_matrix_hdg(
-            A.handle, x_dofs, x, Vbar_dofmap, num_owned_cells, bc_dofs_marker,
-            MatSetValues_abi, PETSc.InsertMode.ADD_VALUES)
-        # TODO
-        A.assemblyBegin(PETSc.Mat.AssemblyType.FLUSH)
-        A.assemblyEnd(PETSc.Mat.AssemblyType.FLUSH)
-        insert_diagonal(A, Vbar._cpp_object, [bc], 1.0)
-        A.assemble()
+    # par_print("Assemble mat")
+    # with Timer("Assemble mat") as t:
+    #     A = create_matrix(msh.comm, sp)
 
-    par_print("Assemble vec")
-    with Timer("Assemble vec") as t:
-        b_func = fem.Function(Vbar)
+    #     assemble_matrix_hdg(
+    #         A.handle, x_dofs, x, Vbar_dofmap, num_owned_cells, bc_dofs_marker,
+    #         MatSetValues_abi, PETSc.InsertMode.ADD_VALUES)
+    #     # TODO
+    #     A.assemblyBegin(PETSc.Mat.AssemblyType.FLUSH)
+    #     A.assemblyEnd(PETSc.Mat.AssemblyType.FLUSH)
+    #     insert_diagonal(A, Vbar._cpp_object, [bc], 1.0)
+    #     A.assemble()
 
-        assemble_vector_hdg(b_func.x.array, x_dofs, x,
-                            Vbar_dofmap, num_owned_cells)
-        b = b_func.vector
-        b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-        fem.petsc.set_bc(b, [bc])
+    # par_print("Assemble vec")
+    # with Timer("Assemble vec") as t:
+    #     b_func = fem.Function(Vbar)
 
-    par_print("Setup solver")
-    with Timer("Setup solver") as t:
-        use_direct_solver = False
+    #     assemble_vector_hdg(b_func.x.array, x_dofs, x,
+    #                         Vbar_dofmap, num_owned_cells)
+    #     b = b_func.vector
+    #     b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+    #     fem.petsc.set_bc(b, [bc])
 
-        if use_direct_solver:
-            ksp = PETSc.KSP().create(msh.comm)
-            ksp.setOperators(A)
-            ksp.setType("preonly")
-            ksp.getPC().setType("lu")
-            ksp.getPC().setFactorSolverType("superlu_dist")
-        else:
-            opts = PETSc.Options()
-            # Solver (Use conjugate gradient)
-            opts['ksp_type'] = 'cg'
-            opts['ksp_rtol'] = '1.0e-8'
-            opts['ksp_view'] = None
-            opts['ksp_monitor'] = None
-            opts['pc_type'] = 'hypre'
-            opts['pc_hypre_type'] = 'boomeramg'
-            opts['pc_hypre_boomeramg_strong_threshold'] = 0.7
-            opts['pc_hypre_boomeramg_agg_nl'] = 4
-            opts['pc_hypre_boomeramg_agg_num_paths'] = 2
+    # par_print("Setup solver")
+    # with Timer("Setup solver") as t:
+    #     use_direct_solver = False
 
-            PETSc.Options().view()
+    #     if use_direct_solver:
+    #         ksp = PETSc.KSP().create(msh.comm)
+    #         ksp.setOperators(A)
+    #         ksp.setType("preonly")
+    #         ksp.getPC().setType("lu")
+    #         ksp.getPC().setFactorSolverType("superlu_dist")
+    #     else:
+    #         opts = PETSc.Options()
+    #         # Solver (Use conjugate gradient)
+    #         opts['ksp_type'] = 'cg'
+    #         opts['ksp_rtol'] = '1.0e-8'
+    #         opts['ksp_view'] = None
+    #         opts['ksp_monitor'] = None
+    #         opts['pc_type'] = 'hypre'
+    #         opts['pc_hypre_type'] = 'boomeramg'
+    #         opts['pc_hypre_boomeramg_strong_threshold'] = 0.7
+    #         opts['pc_hypre_boomeramg_agg_nl'] = 4
+    #         opts['pc_hypre_boomeramg_agg_num_paths'] = 2
 
-            ksp = PETSc.KSP().create(msh.comm)
-            ksp.setOperators(A)
-            ksp.setFromOptions()
+    #         PETSc.Options().view()
 
-    par_print("Solve")
-    with Timer("Solve") as t:
-        # Compute solution
-        ubar = fem.Function(Vbar)
-        import time
-        start = time.time()
-        ksp.solve(b, ubar.vector)
-        end = time.time()
-        par_print(f"solve time = {end - start}")
-        ubar.x.scatter_forward()
+    #         ksp = PETSc.KSP().create(msh.comm)
+    #         ksp.setOperators(A)
+    #         ksp.setFromOptions()
 
-    # par_print("Write")
+    # par_print("Solve")
+    # with Timer("Solve") as t:
+    #     # Compute solution
+    #     ubar = fem.Function(Vbar)
+    #     import time
+    #     start = time.time()
+    #     ksp.solve(b, ubar.vector)
+    #     end = time.time()
+    #     par_print(f"solve time = {end - start}")
+    #     ubar.x.scatter_forward()
 
-    # with io.VTXWriter(msh.comm, "ubar.bp", ubar) as f:
-    #     f.write(0.0)
+    # # par_print("Write")
 
-    par_print("Create form")
-    with Timer("Create form") as t:
-        # TODO Check with custom integration entities that this actually runs
-        # over all cells
-        integrals = {fem.IntegralType.cell: {-1: (backsub.address, [])}}
-        u_form = Form_float64([V._cpp_object], integrals, [], [], False, None)
+    # # with io.VTXWriter(msh.comm, "ubar.bp", ubar) as f:
+    # #     f.write(0.0)
 
-    u = fem.Function(V)
+    # par_print("Create form")
+    # with Timer("Create form") as t:
+    #     # TODO Check with custom integration entities that this actually runs
+    #     # over all cells
+    #     integrals = {fem.IntegralType.cell: {-1: (backsub.address, [])}}
+    #     u_form = Form_float64([V._cpp_object], integrals, [], [], False, None)
 
-    # TODO Use numba
-    par_print("Pack coeffs")
-    with Timer("Pack coeffs") as t:
-        coeffs = np.zeros((num_cells, Vbar_ele_space_dim * num_cell_facets))
-        for cell in range(num_cells):
-            cell_facets = c_to_facet_mesh_f[cell]
-            for local_facet, facet in enumerate(cell_facets):
-                dofs = Vbar_dofmap[facet]
-                coeffs[
-                    cell,
-                    Vbar_ele_space_dim * local_facet:
-                    Vbar_ele_space_dim * local_facet + Vbar_ele_space_dim] = \
-                    ubar.x.array[dofs]
-        coeffs = {(IntegralType.cell, -1): coeffs}
+    # u = fem.Function(V)
 
-    par_print("Assemble vec")
-    with Timer("Assemble vec") as t:
-        fem.assemble_vector(u.x.array, u_form, coeffs=coeffs)
-        u.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
-                            mode=PETSc.ScatterMode.REVERSE)
+    # # TODO Use numba
+    # par_print("Pack coeffs")
+    # with Timer("Pack coeffs") as t:
+    #     coeffs = np.zeros((num_cells, Vbar_ele_space_dim * num_cell_facets))
+    #     for cell in range(num_cells):
+    #         cell_facets = c_to_facet_mesh_f[cell]
+    #         for local_facet, facet in enumerate(cell_facets):
+    #             dofs = Vbar_dofmap[facet]
+    #             coeffs[
+    #                 cell,
+    #                 Vbar_ele_space_dim * local_facet:
+    #                 Vbar_ele_space_dim * local_facet + Vbar_ele_space_dim] = \
+    #                 ubar.x.array[dofs]
+    #     coeffs = {(IntegralType.cell, -1): coeffs}
 
-    # par_print("Write")
-    # with io.VTXWriter(msh.comm, "u.bp", u) as f:
-    #     f.write(0.0)
+    # par_print("Assemble vec")
+    # with Timer("Assemble vec") as t:
+    #     fem.assemble_vector(u.x.array, u_form, coeffs=coeffs)
+    #     u.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
+    #                         mode=PETSc.ScatterMode.REVERSE)
 
-    par_print("Compute error")
-    with Timer("Compute error") as t:
-        e_L2 = norm_L2(msh.comm, u - u_e)
-    if msh.comm.rank == 0:
-        print(f"e_L2 = {e_L2}")
+    # # par_print("Write")
+    # # with io.VTXWriter(msh.comm, "u.bp", u) as f:
+    # #     f.write(0.0)
 
-    par_print(f"total num dofs V = {V.dofmap.index_map.size_global}")
-    par_print(f"total num dofs Vbar = {Vbar.dofmap.index_map.size_global}")
-    par_print(f"total dofs = {V.dofmap.index_map.size_global + Vbar.dofmap.index_map.size_global}")
-    par_print(f"total dofs per process = {(V.dofmap.index_map.size_global + Vbar.dofmap.index_map.size_global) / comm.size}")
+    # par_print("Compute error")
+    # with Timer("Compute error") as t:
+    #     e_L2 = norm_L2(msh.comm, u - u_e)
+    # if msh.comm.rank == 0:
+    #     print(f"e_L2 = {e_L2}")
+
+    # par_print(f"total num dofs V = {V.dofmap.index_map.size_global}")
+    # par_print(f"total num dofs Vbar = {Vbar.dofmap.index_map.size_global}")
+    # par_print(f"total dofs = {V.dofmap.index_map.size_global + Vbar.dofmap.index_map.size_global}")
+    # par_print(f"total dofs per process = {(V.dofmap.index_map.size_global + Vbar.dofmap.index_map.size_global) / comm.size}")
 
 if __name__ == "__main__":
     # import cProfile
@@ -542,5 +553,5 @@ if __name__ == "__main__":
     #     "main()", filename=f"out_python_{MPI.COMM_WORLD.rank}.profile")
     with Timer("TOTAL") as t:
         main()
-    list_timings(MPI.COMM_WORLD, [TimingType.wall, TimingType.user])
+    # list_timings(MPI.COMM_WORLD, [TimingType.wall, TimingType.user])
 
