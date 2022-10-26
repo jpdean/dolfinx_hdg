@@ -63,15 +63,15 @@ def main():
 
     comm = MPI.COMM_WORLD
 
-    # n = 128
     par_print("Create mesh")
     with Timer("Create mesh") as t:
-        n = round((500000 * comm.size / 60)**(1 / 3))
+        n = 2
+        # n = round((500000 * comm.size / 60)**(1 / 3))
         par_print(f"n = {n}")
-        # msh = mesh.create_unit_square(
-        #     comm, n, n, ghost_mode=mesh.GhostMode.none)
-        msh = mesh.create_unit_cube(
-            comm, n, n, n, ghost_mode=mesh.GhostMode.none)
+        msh = mesh.create_unit_square(
+            comm, n, n, ghost_mode=mesh.GhostMode.none)
+        # msh = mesh.create_unit_cube(
+        #     comm, n, n, n, ghost_mode=mesh.GhostMode.none)
         reorder_mesh(msh)
 
     par_print("Create submesh")
