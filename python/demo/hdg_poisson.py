@@ -16,6 +16,7 @@ import numba
 from dolfinx.cpp.fem import Form_float64
 import sys
 from dolfinx.common import Timer, list_timings, TimingType
+import dolfinx_hdg
 
 
 def main():
@@ -396,12 +397,26 @@ def main():
         x += np.linalg.solve(A00, b_0 - A10.T @ u_bar)
 
 
+    par_print("BC")
+    with Timer("BC") as t:
+        msh_boundary_facets = mesh.locate_entities_boundary(msh, fdim, boundary)
+        facet_mesh_boundary_facets = [inv_entity_map[facet]
+                                    for facet in msh_boundary_facets]
+        bc_dofs = fem.locate_dofs_topological(
+            Vbar, fdim, facet_mesh_boundary_facets)
+        num_dofs_Vbar = (Vbar.dofmap.index_map.size_local +
+                        Vbar.dofmap.index_map.num_ghosts) * V.dofmap.index_map_bs
+        bc_dofs_marker = np.full(num_dofs_Vbar, False, dtype=np.bool8)
+        bc_dofs_marker[bc_dofs] = True
+        bc = fem.dirichletbc(PETSc.ScalarType(0.0), bc_dofs, Vbar)
+
     integrals = {fem.IntegralType.cell: {-1: (tabulate_tensor.address, [])}}
     # HACK: Pass empty entity maps to prevent Form complaining about different
     # meshes
-    u_form = Form_float64(
+    a = Form_float64(
         [Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], False, msh,
         entity_maps={facet_mesh: []})
+    # A = dolfinx_hdg.assemble.assemble_matrix(a)
 
     # par_print("Sparsity")
     # with Timer("Sparsity") as t:
@@ -420,19 +435,6 @@ def main():
 
     #     create_sparsity_pattern()
     #     sp.assemble()
-
-    # par_print("BC")
-    # with Timer("BC") as t:
-    #     msh_boundary_facets = mesh.locate_entities_boundary(msh, fdim, boundary)
-    #     facet_mesh_boundary_facets = [inv_entity_map[facet]
-    #                                 for facet in msh_boundary_facets]
-    #     bc_dofs = fem.locate_dofs_topological(
-    #         Vbar, fdim, facet_mesh_boundary_facets)
-    #     num_dofs_Vbar = (Vbar.dofmap.index_map.size_local +
-    #                     Vbar.dofmap.index_map.num_ghosts) * V.dofmap.index_map_bs
-    #     bc_dofs_marker = np.full(num_dofs_Vbar, False, dtype=np.bool8)
-    #     bc_dofs_marker[bc_dofs] = True
-    #     bc = fem.dirichletbc(PETSc.ScalarType(0.0), bc_dofs, Vbar)
 
     # par_print("Assemble mat")
     # with Timer("Assemble mat") as t:
