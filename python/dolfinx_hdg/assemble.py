@@ -1,7 +1,6 @@
 import functools
 from petsc4py import PETSc
 import dolfinx
-from dolfinx.fem.assemble import pack_constants
 import dolfinx.cpp
 import dolfinx_hdg.cpp
 from dolfinx.fem.forms import FormMetaClass
@@ -84,9 +83,14 @@ def _assemble_matrix_mat(A: PETSc.Mat, a, bcs = [],
     finalised, i.e. ghost values are not accumulated.
 
     """
+
+    # TODO Pack constants and coeffs
     # constants = _pack_constants(a) if constants is None else constants
     # coeffs = _pack_coefficients(a) if coeffs is None else coeffs
-    # _cpp.fem.petsc.assemble_matrix(A, a, constants, coeffs, bcs)
+    constants = []
+    coeffs = {}
+
+    dolfinx_hdg.cpp.assemble_matrix(A, a, constants, coeffs, bcs)
     # if a.function_spaces[0] is a.function_spaces[1]:
     #     A.assemblyBegin(PETSc.Mat.AssemblyType.FLUSH)
     #     A.assemblyEnd(PETSc.Mat.AssemblyType.FLUSH)

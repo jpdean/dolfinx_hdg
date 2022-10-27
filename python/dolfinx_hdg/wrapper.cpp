@@ -6,8 +6,8 @@
 #include <dolfinx_hdg/petsc.h>
 // #include <petscmat.h>
 // #include <dolfinx/fem/DirichletBC.h>
-// #include <dolfinx_hdg/assembler.h>
-// #include <dolfinx/la/petsc.h>
+#include <dolfinx_hdg/assembler.h>
+#include <dolfinx/la/petsc.h>
 // #include <iostream>
 #include "caster_petsc.h"
 // #include <dolfinx_hdg/Form.h>
@@ -15,37 +15,23 @@
 // FIXME Include this from dolfinx wrappers
 namespace dolfinx_hdg_wrappers
 {
-    // template <typename T>
-    // std::map<std::pair<dolfinx::fem::IntegralType, int>,
-    //         std::pair<xtl::span<const T>, int>>
-    // py_to_cpp_coeffs(const std::map<std::pair<dolfinx::fem::IntegralType, int>,
-    //                                 py::array_t<T, py::array::c_style>>& coeffs)
-    // {
-    //     using Key_t = typename std::remove_reference_t<decltype(coeffs)>::key_type;
-    //     std::map<Key_t, std::pair<xtl::span<const T>, int>> c;
-    //     std::transform(coeffs.cbegin(), coeffs.cend(), std::inserter(c, c.end()),
-    //                     [](auto& e) -> typename decltype(c)::value_type
-    //                     {
-    //                     return {
-    //                         e.first,
-    //                         {xtl::span<const T>(e.second.data(), e.second.size()),
-    //                             e.second.shape(1)}};
-    //                     });
-    //     return c;
-    // }
-
-    // template <typename Sequence, typename U>
-    // py::array_t<typename Sequence::value_type> as_pyarray(Sequence&& seq, U&& shape)
-    // {
-    // auto data = seq.data();
-    // std::unique_ptr<Sequence> seq_ptr
-    //     = std::make_unique<Sequence>(std::move(seq));
-    // auto capsule = py::capsule(
-    //     seq_ptr.get(), [](void* p)
-    //     { std::unique_ptr<Sequence>(reinterpret_cast<Sequence*>(p)); });
-    // seq_ptr.release();
-    // return py::array(shape, data, capsule);
-    // }
+    template <typename T>
+    std::map<std::pair<dolfinx::fem::IntegralType, int>,
+             std::pair<std::span<const T>, int>>
+    py_to_cpp_coeffs(const std::map<std::pair<dolfinx::fem::IntegralType, int>,
+                                    py::array_t<T, py::array::c_style>> &coeffs)
+    {
+        using Key_t = typename std::remove_reference_t<decltype(coeffs)>::key_type;
+        std::map<Key_t, std::pair<std::span<const T>, int>> c;
+        std::transform(coeffs.begin(), coeffs.end(), std::inserter(c, c.end()),
+                       [](auto &e) -> typename decltype(c)::value_type
+                       {
+                           return {e.first,
+                                   {std::span(e.second.data(), e.second.size()),
+                                    e.second.shape(1)}};
+                       });
+        return c;
+    }
 }
 
 PYBIND11_MODULE(cpp, m)
@@ -58,6 +44,25 @@ PYBIND11_MODULE(cpp, m)
           pybind11::return_value_policy::take_ownership, pybind11::arg("a"),
           pybind11::arg("type") = std::string(),
           "Create a PETSc Mat for bilinear form.");
+
+    m.def(
+        "assemble_matrix",
+        [](Mat A, const dolfinx::fem::Form<PetscScalar> &a,
+           const py::array_t<PetscScalar, py::array::c_style> &constants,
+           const std::map<std::pair<dolfinx::fem::IntegralType, int>,
+                          py::array_t<PetscScalar, py::array::c_style>> &
+               coefficients,
+           const std::vector<std::shared_ptr<
+               const dolfinx::fem::DirichletBC<PetscScalar>>> &bcs)
+        {
+            dolfinx_hdg::fem::assemble_matrix(
+                dolfinx::la::petsc::Matrix::set_block_fn(A, ADD_VALUES), a,
+                std::span(constants.data(), constants.size()),
+                dolfinx_hdg_wrappers::py_to_cpp_coeffs(coefficients), bcs);
+        },
+        py::arg("A"), py::arg("a"), py::arg("constants"), py::arg("coeffs"),
+        py::arg("bcs"),
+        "Assemble bilinear form into an existing PETSc matrix");
 
     // m.def("create_sparsity_pattern",
     //       &dolfinx_hdg::fem::create_sparsity_pattern<PetscScalar>,

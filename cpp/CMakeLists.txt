@@ -14,7 +14,8 @@ find_package(DOLFINX REQUIRED)
 
 add_library(${PROJECT_NAME}
         hello.h hello.cpp
-        petsc.h petsc.cpp)
+        petsc.h petsc.cpp
+        assembler.h)
 
 # state that anybody linking to us needs to include the current source dir
 # to find hello.h, while we don't.
@@ -32,6 +33,7 @@ install(TARGETS ${PROJECT_NAME}
 install(FILES
         hello.h
         petsc.h
+        assembler.h
         DESTINATION include/${PROJECT_NAME})
 
 # install the configuration targets
