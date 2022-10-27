@@ -425,16 +425,6 @@ def main():
         entity_maps={facet_mesh: inv_entity_map})
     # NOTE Currently this only creates sparsity
     A = assemble_matrix_hdg(a, bcs=[bc])
-
-    # par_print("Assemble mat")
-    # with Timer("Assemble mat") as t:
-    #     assemble_matrix_hdg_numba(
-    #         A.handle, x_dofs, x, Vbar_dofmap, num_owned_cells, bc_dofs_marker,
-    #         MatSetValues_abi, PETSc.InsertMode.ADD_VALUES)
-    #     # TODO
-    #     A.assemblyBegin(PETSc.Mat.AssemblyType.FLUSH)
-    #     A.assemblyEnd(PETSc.Mat.AssemblyType.FLUSH)
-    #     insert_diagonal(A, Vbar._cpp_object, [bc], 1.0)
     A.assemble()
 
     par_print("Assemble vec")
