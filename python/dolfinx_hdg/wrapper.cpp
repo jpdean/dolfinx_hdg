@@ -9,7 +9,7 @@
 // #include <dolfinx_hdg/assembler.h>
 // #include <dolfinx/la/petsc.h>
 // #include <iostream>
-// #include "caster_petsc.h"
+#include "caster_petsc.h"
 // #include <dolfinx_hdg/Form.h>
 
 // FIXME Include this from dolfinx wrappers

@@ -4,9 +4,8 @@
 #include "utils.h"
 #include <dolfinx/la/petsc.h>
 
-// Mat dolfinx_hdg::fem::create_matrix(const dolfinx::fem::Form<PetscScalar>& a,
-void dolfinx_hdg::fem::create_matrix(const dolfinx::fem::Form<PetscScalar> &a,
-                                     const std::string &type)
+Mat dolfinx_hdg::fem::create_matrix(const dolfinx::fem::Form<PetscScalar> &a,
+                                    const std::string &type)
 {
     //   Build sparsity pattern
     dolfinx::la::SparsityPattern pattern =
@@ -15,6 +14,5 @@ void dolfinx_hdg::fem::create_matrix(const dolfinx::fem::Form<PetscScalar> &a,
     // Finalise communication
     pattern.assemble();
 
-    //   return la::petsc::create_matrix(a.mesh()->comm(), pattern, type);
-    std::cout << "TODO dolfinx_hdg::fem::create_matrix\n";
+    return dolfinx::la::petsc::create_matrix(a.mesh()->comm(), pattern, type);
 }

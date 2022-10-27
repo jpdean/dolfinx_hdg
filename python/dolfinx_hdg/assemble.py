@@ -73,8 +73,8 @@ def _assemble_matrix_form(a, bcs = [],
     """
     A = dolfinx_hdg.cpp.create_matrix(a)
     # _assemble_matrix_mat(A, a, bcs, diagonal, constants, coeffs)
-    # return A
     print("TODO _assemble_matrix_form")
+    return A
 
 # @assemble_matrix.register(PETSc.Mat)
 # def _(A: PETSc.Mat,
