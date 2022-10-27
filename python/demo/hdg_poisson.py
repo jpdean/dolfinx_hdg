@@ -19,7 +19,6 @@ from dolfinx.common import Timer, list_timings, TimingType
 from dolfinx_hdg.assemble import assemble_matrix as assemble_matrix_hdg
 
 
-
 def main():
     def norm_L2(comm, v):
         return np.sqrt(comm.allreduce(fem.assemble_scalar(
@@ -118,7 +117,7 @@ def main():
 
         a_00 = inner(grad(u), grad(v)) * dx_c - \
             (inner(u, dot(grad(v), n)) * ds_c +
-            inner(v, dot(grad(u), n)) * ds_c) + \
+             inner(v, dot(grad(u), n)) * ds_c) + \
             gamma * inner(u, v) * ds_c
         a_10 = inner(dot(grad(u), n) - gamma * u, vbar) * ds_c
         a_11 = gamma * inner(ubar, vbar) * ds_c
@@ -144,7 +143,8 @@ def main():
         for i, f in enumerate(entity_map):
             inv_entity_map[f] = i
 
-        c_to_f = msh.topology.connectivity(msh.topology.dim, msh.topology.dim - 1)
+        c_to_f = msh.topology.connectivity(
+            msh.topology.dim, msh.topology.dim - 1)
         c_to_facet_mesh_f = inv_entity_map[c_to_f.array].reshape(
             num_cells, num_cell_facets)
 
@@ -157,9 +157,9 @@ def main():
         ufcx_form_00, _, _ = jit.ffcx_jit(
             msh.comm, a_00, form_compiler_options={"scalar_type": ffcxtype})
         kernel_00_cell = getattr(ufcx_form_00.integrals(IntegralType.cell)[0],
-                                f"tabulate_tensor_{nptype}")
+                                 f"tabulate_tensor_{nptype}")
         kernel_00_facet = getattr(ufcx_form_00.integrals(IntegralType.exterior_facet)[0],
-                                f"tabulate_tensor_{nptype}")
+                                  f"tabulate_tensor_{nptype}")
         ufcx_form_10, _, _ = jit.ffcx_jit(
             msh.comm, a_10, form_compiler_options={"scalar_type": ffcxtype})
         kernel_10 = getattr(ufcx_form_10.integrals(IntegralType.exterior_facet)[0],
@@ -173,7 +173,7 @@ def main():
         ufcx_form_0, _, _ = jit.ffcx_jit(
             msh.comm, L_0, form_compiler_options={"scalar_type": ffcxtype})
         kernel_0 = getattr(ufcx_form_0.integrals(IntegralType.cell)[0],
-                        f"tabulate_tensor_{nptype}")
+                           f"tabulate_tensor_{nptype}")
 
     par_print("FFI setup")
     with Timer("FFI setup") as t:
@@ -191,7 +191,8 @@ def main():
         elif index_size == 4:
             c_int_t = "int32_t"
         else:
-            raise RuntimeError(f"Cannot translate PETSc index size into a C type, index_size: {index_size}.")
+            raise RuntimeError(
+                f"Cannot translate PETSc index size into a C type, index_size: {index_size}.")
 
         if complex and scalar_size == 16:
             c_scalar_t = "double _Complex"
@@ -377,7 +378,10 @@ def main():
 
     @numba.cfunc(c_signature, nopython=True, fastmath=True)
     def tabulate_tensor(A_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
-        pass
+        A_local = numba.carray(A_, (num_cell_facets * Vbar_ele_space_dim,
+                                    num_cell_facets * Vbar_ele_space_dim),
+                               dtype=PETSc.ScalarType)
+        A_local.fill(1.0)
 
     @numba.cfunc(c_signature, nopython=True, fastmath=True)
     def backsub(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
@@ -397,16 +401,16 @@ def main():
 
         x += np.linalg.solve(A00, b_0 - A10.T @ u_bar)
 
-
     par_print("BC")
     with Timer("BC") as t:
-        msh_boundary_facets = mesh.locate_entities_boundary(msh, fdim, boundary)
+        msh_boundary_facets = mesh.locate_entities_boundary(
+            msh, fdim, boundary)
         facet_mesh_boundary_facets = [inv_entity_map[facet]
-                                    for facet in msh_boundary_facets]
+                                      for facet in msh_boundary_facets]
         bc_dofs = fem.locate_dofs_topological(
             Vbar, fdim, facet_mesh_boundary_facets)
         num_dofs_Vbar = (Vbar.dofmap.index_map.size_local +
-                        Vbar.dofmap.index_map.num_ghosts) * V.dofmap.index_map_bs
+                         Vbar.dofmap.index_map.num_ghosts) * V.dofmap.index_map_bs
         bc_dofs_marker = np.full(num_dofs_Vbar, False, dtype=np.bool8)
         bc_dofs_marker[bc_dofs] = True
         bc = fem.dirichletbc(PETSc.ScalarType(0.0), bc_dofs, Vbar)
@@ -438,7 +442,8 @@ def main():
         assemble_vector_hdg(b_func.x.array, x_dofs, x,
                             Vbar_dofmap, num_owned_cells)
         b = b_func.vector
-        b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+        b.ghostUpdate(addv=PETSc.InsertMode.ADD,
+                      mode=PETSc.ScatterMode.REVERSE)
         fem.petsc.set_bc(b, [bc])
 
     par_print("Setup solver")
@@ -491,7 +496,8 @@ def main():
         # TODO Check with custom integration entities that this actually runs
         # over all cells
         integrals = {fem.IntegralType.cell: {-1: (backsub.address, [])}}
-        u_form = Form_float64([V._cpp_object], integrals, [], [], False, None, {})
+        u_form = Form_float64([V._cpp_object], integrals,
+                              [], [], False, None, {})
 
     u = fem.Function(V)
 
@@ -514,7 +520,7 @@ def main():
     with Timer("Assemble vec") as t:
         fem.assemble_vector(u.x.array, u_form, coeffs=coeffs)
         u.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
-                            mode=PETSc.ScatterMode.REVERSE)
+                             mode=PETSc.ScatterMode.REVERSE)
 
     # par_print("Write")
     # with io.VTXWriter(msh.comm, "u.bp", u) as f:
@@ -528,8 +534,11 @@ def main():
 
     par_print(f"total num dofs V = {V.dofmap.index_map.size_global}")
     par_print(f"total num dofs Vbar = {Vbar.dofmap.index_map.size_global}")
-    par_print(f"total dofs = {V.dofmap.index_map.size_global + Vbar.dofmap.index_map.size_global}")
-    par_print(f"total dofs per process = {(V.dofmap.index_map.size_global + Vbar.dofmap.index_map.size_global) / comm.size}")
+    par_print(
+        f"total dofs = {V.dofmap.index_map.size_global + Vbar.dofmap.index_map.size_global}")
+    par_print(
+        f"total dofs per process = {(V.dofmap.index_map.size_global + Vbar.dofmap.index_map.size_global) / comm.size}")
+
 
 if __name__ == "__main__":
     # import cProfile
@@ -538,4 +547,3 @@ if __name__ == "__main__":
     with Timer("TOTAL") as t:
         main()
     # list_timings(MPI.COMM_WORLD, [TimingType.wall, TimingType.user])
-

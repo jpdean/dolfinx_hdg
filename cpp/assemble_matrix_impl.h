@@ -218,7 +218,7 @@ namespace dolfinx_hdg::fem::impl
 
     template <typename T, typename U>
     void assemble_cells(
-        U mat_set, const mesh::Mesh& mesh,
+        U mat_set, const mesh::Mesh &mesh,
         const std::span<const std::int32_t> &cells,
         const std::function<void(const std::span<T> &,
                                  const std::span<const std::uint32_t> &,
@@ -256,76 +256,84 @@ namespace dolfinx_hdg::fem::impl
         const int num_dofs1 = dofmap1.links(0).size();
         const int ndim0 = bs0 * num_dofs0;
         const int ndim1 = bs1 * num_dofs1;
-        // const int num_cell_facets = dolfinx::mesh::cell_num_entities(mesh.topology().cell_type(), mesh.topology().dim() - 1)
-        // std::vector<T> Ae(ndim0 * ndim1);
-        // const std::span<T> _Ae(Ae);
-        // std::vector<scalar_value_type_t<T>> coordinate_dofs(3 * num_dofs_g);
+        const int num_cell_facets =
+            dolfinx::mesh::cell_num_entities(mesh.topology().cell_type(),
+                                             mesh.topology().dim() - 1);
+        std::vector<T> Ae(ndim0 * num_cell_facets * ndim1 * num_cell_facets);
+        const std::span<T> _Ae(Ae);
+        std::vector<dolfinx::fem::impl::scalar_value_type_t<T>> coordinate_dofs(3 * num_dofs_g);
 
-        // // Iterate over active cells
-        // for (std::size_t index = 0; index < cells.size(); ++index)
-        // {
-        //     std::int32_t c = cells[index];
-        //     // Map the cell in the integration domain to the cell in the mesh
-        //     // each function space is defined over
-        //     std::int32_t c_0 = cell_map_0(cells.subspan(index, 1));
-        //     assert(c_0 >= 0);
-        //     std::int32_t c_1 = cell_map_1(cells.subspan(index, 1));
-        //     assert(c_1 >= 0);
+        // Iterate over active cells
+        for (std::size_t index = 0; index < cells.size(); ++index)
+        {
+            std::int32_t c = cells[index];
+            //     // Map the cell in the integration domain to the cell in the mesh
+            //     // each function space is defined over
+            //     std::int32_t c_0 = cell_map_0(cells.subspan(index, 1));
+            //     assert(c_0 >= 0);
+            //     std::int32_t c_1 = cell_map_1(cells.subspan(index, 1));
+            //     assert(c_1 >= 0);
 
-        //     // Get cell coordinates/geometry
-        //     auto x_dofs = x_dofmap.links(c);
-        //     for (std::size_t i = 0; i < x_dofs.size(); ++i)
-        //     {
-        //         std::copy_n(std::next(x_g.begin(), 3 * x_dofs[i]), 3,
-        //                     std::next(coordinate_dofs.begin(), 3 * i));
-        //     }
+            // Get cell coordinates/geometry
+            auto x_dofs = x_dofmap.links(c);
+            for (std::size_t i = 0; i < x_dofs.size(); ++i)
+            {
+                std::copy_n(std::next(x_g.begin(), 3 * x_dofs[i]), 3,
+                            std::next(coordinate_dofs.begin(), 3 * i));
+            }
 
-        //     // Tabulate tensor
-        //     std::fill(Ae.begin(), Ae.end(), 0);
-        //     kernel(Ae.data(), coeffs.data() + index * cstride, constants.data(),
-        //            coordinate_dofs.data(), nullptr, nullptr);
+            // Tabulate tensor
+            std::fill(Ae.begin(), Ae.end(), 0);
+            kernel(Ae.data(), coeffs.data() + index * cstride, constants.data(),
+                   coordinate_dofs.data(), nullptr, nullptr);
 
-        //     dof_transform(_Ae, cell_info_1, c_1, ndim1);
-        //     dof_transform_to_transpose(_Ae, cell_info_0, c_0, ndim0);
+            for (auto val : Ae)
+            {
+                std::cout << val << " ";
+            }
+            std::cout << "\n";
 
-        //     // Zero rows/columns for essential bcs
-        //     auto dofs0 = dofmap0.links(c_0);
-        //     auto dofs1 = dofmap1.links(c_1);
-        //     if (!bc0.empty())
-        //     {
-        //         for (int i = 0; i < num_dofs0; ++i)
-        //         {
-        //             for (int k = 0; k < bs0; ++k)
-        //             {
-        //                 if (bc0[bs0 * dofs0[i] + k])
-        //                 {
-        //                     // Zero row bs0 * i + k
-        //                     const int row = bs0 * i + k;
-        //                     std::fill_n(std::next(Ae.begin(), ndim1 * row), ndim1, 0.0);
-        //                 }
-        //             }
-        //         }
-        //     }
+            //     dof_transform(_Ae, cell_info_1, c_1, ndim1);
+            //     dof_transform_to_transpose(_Ae, cell_info_0, c_0, ndim0);
 
-        //     if (!bc1.empty())
-        //     {
-        //         for (int j = 0; j < num_dofs1; ++j)
-        //         {
-        //             for (int k = 0; k < bs1; ++k)
-        //             {
-        //                 if (bc1[bs1 * dofs1[j] + k])
-        //                 {
-        //                     // Zero column bs1 * j + k
-        //                     const int col = bs1 * j + k;
-        //                     for (int row = 0; row < ndim0; ++row)
-        //                         Ae[row * ndim1 + col] = 0.0;
-        //                 }
-        //             }
-        //         }
-        //     }
+            //     // Zero rows/columns for essential bcs
+            //     auto dofs0 = dofmap0.links(c_0);
+            //     auto dofs1 = dofmap1.links(c_1);
+            //     if (!bc0.empty())
+            //     {
+            //         for (int i = 0; i < num_dofs0; ++i)
+            //         {
+            //             for (int k = 0; k < bs0; ++k)
+            //             {
+            //                 if (bc0[bs0 * dofs0[i] + k])
+            //                 {
+            //                     // Zero row bs0 * i + k
+            //                     const int row = bs0 * i + k;
+            //                     std::fill_n(std::next(Ae.begin(), ndim1 * row), ndim1, 0.0);
+            //                 }
+            //             }
+            //         }
+            //     }
 
-        //     mat_set(dofs0, dofs1, Ae);
-        // }
+            //     if (!bc1.empty())
+            //     {
+            //         for (int j = 0; j < num_dofs1; ++j)
+            //         {
+            //             for (int k = 0; k < bs1; ++k)
+            //             {
+            //                 if (bc1[bs1 * dofs1[j] + k])
+            //                 {
+            //                     // Zero column bs1 * j + k
+            //                     const int col = bs1 * j + k;
+            //                     for (int row = 0; row < ndim0; ++row)
+            //                         Ae[row * ndim1 + col] = 0.0;
+            //                 }
+            //             }
+            //         }
+            //     }
+
+            //     mat_set(dofs0, dofs1, Ae);
+        }
     }
 
     template <typename T, typename U>
