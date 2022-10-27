@@ -416,7 +416,7 @@ def main():
     # meshes
     a = Form_float64(
         [Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], False, msh,
-        entity_maps={facet_mesh: []})
+        entity_maps={facet_mesh: inv_entity_map})
     A = assemble_matrix_hdg(a, bcs=[bc])
 
     # par_print("Sparsity")
