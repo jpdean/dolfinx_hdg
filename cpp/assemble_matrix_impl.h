@@ -261,6 +261,8 @@ namespace dolfinx_hdg::fem::impl
                                              mesh.topology().dim() - 1);
         std::vector<T> Ae(ndim0 * num_cell_facets * ndim1 * num_cell_facets);
         const std::span<T> _Ae(Ae);
+        std::vector<std::int32_t> dofs0(ndim0 * num_cell_facets);
+        std::vector<std::int32_t> dofs1(ndim1 * num_cell_facets);
         std::vector<dolfinx::fem::impl::scalar_value_type_t<T>> coordinate_dofs(3 * num_dofs_g);
 
         // Iterate over active cells
@@ -287,52 +289,57 @@ namespace dolfinx_hdg::fem::impl
             kernel(Ae.data(), coeffs.data() + index * cstride, constants.data(),
                    coordinate_dofs.data(), nullptr, nullptr);
 
-            for (auto val : Ae)
-            {
-                std::cout << val << " ";
-            }
-            std::cout << "\n";
-
             //     dof_transform(_Ae, cell_info_1, c_1, ndim1);
             //     dof_transform_to_transpose(_Ae, cell_info_0, c_0, ndim0);
 
-            //     // Zero rows/columns for essential bcs
-            //     auto dofs0 = dofmap0.links(c_0);
-            //     auto dofs1 = dofmap1.links(c_1);
-            //     if (!bc0.empty())
+            for (int local_facet = 0; local_facet < num_cell_facets; ++local_facet)
+            {
+                const std::array cell_local_facet = {c, local_facet};
+                const std::int32_t facet_0 = cell_map_0(cell_local_facet);
+                const std::int32_t facet_1 = cell_map_1(cell_local_facet);
+                auto dofs0_f = dofmap0.links(facet_0);
+                auto dofs1_f = dofmap1.links(facet_1);
+
+                std::copy_n(dofs0_f.begin(), dofs0_f.size(), dofs0.begin() + ndim0 * local_facet);
+                std::copy_n(dofs1_f.begin(), dofs1_f.size(), dofs1.begin() + ndim1 * local_facet);
+            }
+
+            // // Zero rows/columns for essential bcs
+            // if (!bc0.empty())
+            // {
+            //     for (int i = 0; i < num_dofs0; ++i)
             //     {
-            //         for (int i = 0; i < num_dofs0; ++i)
+            //         for (int k = 0; k < bs0; ++k)
             //         {
-            //             for (int k = 0; k < bs0; ++k)
+            //             if (bc0[bs0 * dofs0[i] + k])
             //             {
-            //                 if (bc0[bs0 * dofs0[i] + k])
-            //                 {
-            //                     // Zero row bs0 * i + k
-            //                     const int row = bs0 * i + k;
-            //                     std::fill_n(std::next(Ae.begin(), ndim1 * row), ndim1, 0.0);
-            //                 }
+            //                 // Zero row bs0 * i + k
+            //                 const int row = bs0 * i + k;
+            //                 std::fill_n(std::next(Ae.begin(), ndim1 * row), ndim1, 0.0);
             //             }
             //         }
             //     }
+            // }
 
-            //     if (!bc1.empty())
+            // if (!bc1.empty())
+            // {
+            //     for (int j = 0; j < num_dofs1; ++j)
             //     {
-            //         for (int j = 0; j < num_dofs1; ++j)
+            //         for (int k = 0; k < bs1; ++k)
             //         {
-            //             for (int k = 0; k < bs1; ++k)
+            //             if (bc1[bs1 * dofs1[j] + k])
             //             {
-            //                 if (bc1[bs1 * dofs1[j] + k])
-            //                 {
-            //                     // Zero column bs1 * j + k
-            //                     const int col = bs1 * j + k;
-            //                     for (int row = 0; row < ndim0; ++row)
-            //                         Ae[row * ndim1 + col] = 0.0;
-            //                 }
+            //                 // Zero column bs1 * j + k
+            //                 const int col = bs1 * j + k;
+            //                 for (int row = 0; row < ndim0; ++row)
+            //                     Ae[row * ndim1 + col] = 0.0;
             //             }
             //         }
             //     }
+            // }
+            // }
 
-            //     mat_set(dofs0, dofs1, Ae);
+            // mat_set(dofs0, dofs1, Ae);
         }
     }
 
