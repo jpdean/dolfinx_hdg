@@ -304,43 +304,44 @@ namespace dolfinx_hdg::fem::impl
                 std::copy_n(dofs1_f.begin(), dofs1_f.size(), dofs1.begin() + ndim1 * local_facet);
             }
 
-            // // Zero rows/columns for essential bcs
-            // if (!bc0.empty())
-            // {
-            //     for (int i = 0; i < num_dofs0; ++i)
-            //     {
-            //         for (int k = 0; k < bs0; ++k)
-            //         {
-            //             if (bc0[bs0 * dofs0[i] + k])
-            //             {
-            //                 // Zero row bs0 * i + k
-            //                 const int row = bs0 * i + k;
-            //                 std::fill_n(std::next(Ae.begin(), ndim1 * row), ndim1, 0.0);
-            //             }
-            //         }
-            //     }
-            // }
+            // Zero rows/columns for essential bcs
+            // FIXME This might be wrong for when block size is not equal to 1
+            if (!bc0.empty())
+            {
+                for (int i = 0; i < dofs0.size(); ++i)
+                {
+                    for (int k = 0; k < bs0; ++k)
+                    {
+                        if (bc0[bs0 * dofs0[i] + k])
+                        {
+                            // Zero row bs0 * i + k
+                            const int row = bs0 * i + k;
+                            std::fill_n(std::next(Ae.begin(), num_cell_facets * ndim1 * row),
+                                        num_cell_facets * ndim1, 0.0);
+                        }
+                    }
+                }
+            }
 
-            // if (!bc1.empty())
-            // {
-            //     for (int j = 0; j < num_dofs1; ++j)
-            //     {
-            //         for (int k = 0; k < bs1; ++k)
-            //         {
-            //             if (bc1[bs1 * dofs1[j] + k])
-            //             {
-            //                 // Zero column bs1 * j + k
-            //                 const int col = bs1 * j + k;
-            //                 for (int row = 0; row < ndim0; ++row)
-            //                     Ae[row * ndim1 + col] = 0.0;
-            //             }
-            //         }
-            //     }
-            // }
-            // }
-
-            // mat_set(dofs0, dofs1, Ae);
+            if (!bc1.empty())
+            {
+                for (int j = 0; j < dofs1.size(); ++j)
+                {
+                    for (int k = 0; k < bs1; ++k)
+                    {
+                        if (bc1[bs1 * dofs1[j] + k])
+                        {
+                            // Zero column bs1 * j + k
+                            const int col = bs1 * j + k;
+                            for (int row = 0; row < num_cell_facets * ndim0; ++row)
+                                Ae[row * num_cell_facets * ndim1 + col] = 0.0;
+                        }
+                    }
+                }
+            }
         }
+
+        mat_set(dofs0, dofs1, Ae);
     }
 
     template <typename T, typename U>
