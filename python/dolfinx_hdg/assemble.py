@@ -73,7 +73,6 @@ def _assemble_matrix_form(a, bcs = [],
     """
     A = dolfinx_hdg.cpp.create_matrix(a)
     _assemble_matrix_mat(A, a, bcs, diagonal, constants, coeffs)
-    print("TODO _assemble_matrix_form")
     return A
 
 
@@ -94,10 +93,10 @@ def _assemble_matrix_mat(A: PETSc.Mat, a, bcs = [],
     coeffs = {(dolfinx.fem.IntegralType.cell, -1): np.zeros(shape=(0, 0), dtype=np.float64)}
 
     dolfinx_hdg.cpp.assemble_matrix(A, a, constants, coeffs, bcs)
-    # if a.function_spaces[0] is a.function_spaces[1]:
-    #     A.assemblyBegin(PETSc.Mat.AssemblyType.FLUSH)
-    #     A.assemblyEnd(PETSc.Mat.AssemblyType.FLUSH)
-    #     _cpp.fem.petsc.insert_diagonal(A, a.function_spaces[0], bcs, diagonal)
+    if a.function_spaces[0] is a.function_spaces[1]:
+        A.assemblyBegin(PETSc.Mat.AssemblyType.FLUSH)
+        A.assemblyEnd(PETSc.Mat.AssemblyType.FLUSH)
+        dolfinx.cpp.fem.petsc.insert_diagonal(A, a.function_spaces[0], bcs, diagonal)
     return A
 
 # @assemble_matrix.register(PETSc.Mat)
