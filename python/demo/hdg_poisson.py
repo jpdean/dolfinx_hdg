@@ -287,54 +287,6 @@ def main():
         pass
 
     @numba.njit(fastmath=True)
-    def assemble_matrix_hdg_numba(mat, x_dofs, x, dofmap, num_cells, bc_dofs_marker, mat_set, mode):
-        # TODO BCs
-        coords = np.zeros((num_dofs_g, 3))
-        A_local = np.zeros((num_cell_facets * Vbar_ele_space_dim,
-                            num_cell_facets * Vbar_ele_space_dim),
-                           dtype=PETSc.ScalarType)
-        A_local_f = np.zeros((Vbar_ele_space_dim, Vbar_ele_space_dim),
-                             dtype=PETSc.ScalarType)
-        for cell in range(num_cells):
-            for j in range(num_dofs_g):
-                coords[j] = x[x_dofs[cell, j], :]
-            A_local.fill(0.0)
-
-            # FIXME Seems silly to assemble this together only to split
-            # again later
-            A00, A10 = compute_A00_A10(coords)
-            A_local += compute_A11(coords) - A10 @ np.linalg.solve(A00, A10.T)
-
-            cell_facets = c_to_facet_mesh_f[cell]
-            for local_facet_0, facet_0 in enumerate(cell_facets):
-                for local_facet_1, facet_1 in enumerate(cell_facets):
-                    dofs_0 = dofmap[facet_0, :]
-                    dofs_1 = dofmap[facet_1, :]
-
-                    # FIXME Can this be done without copying?
-                    A_local_f.fill(0.0)
-                    A_local_f += A_local[
-                        local_facet_0 * Vbar_ele_space_dim:
-                        local_facet_0 * Vbar_ele_space_dim + Vbar_ele_space_dim,
-                        local_facet_1 * Vbar_ele_space_dim:
-                        local_facet_1 * Vbar_ele_space_dim + Vbar_ele_space_dim]
-
-                    # FIXME Need to add block size
-                    for i, dof in enumerate(dofs_0):
-                        if bc_dofs_marker[dof]:
-                            A_local_f[i, :] = 0.0
-
-                    for i, dof in enumerate(dofs_1):
-                        if bc_dofs_marker[dof]:
-                            A_local_f[:, i] = 0.0
-
-                    mat_set(mat, Vbar_ele_space_dim, ffi.from_buffer(dofs_0),
-                            Vbar_ele_space_dim, ffi.from_buffer(dofs_1),
-                            ffi.from_buffer(A_local_f), mode)
-
-        sink(A_local, A_local_f)
-
-    @numba.njit(fastmath=True)
     def assemble_vector_hdg(b, x_dofs, x, dofmap, num_cells):
         coords = np.zeros((num_dofs_g, 3))
         b_local = np.zeros(num_cell_facets * Vbar_ele_space_dim,
