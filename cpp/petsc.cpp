@@ -1,19 +1,20 @@
 #include "petsc.h"
 #include <iostream>
 #include <dolfinx/la/SparsityPattern.h>
-#include "utils.h"
+// #include "utils.h"
 #include <dolfinx/la/petsc.h>
 
-// Mat dolfinx_hdg::fem::create_matrix(const Form<PetscScalar>& a,
-Mat dolfinx_hdg::fem::create_matrix(const dolfinx::fem::Form<PetscScalar> &a,
-                                    const std::string &type)
+
+// Mat dolfinx_hdg::fem::create_matrix(const dolfinx::fem::Form<PetscScalar>& a,
+void dolfinx_hdg::fem::create_matrix(const dolfinx::fem::Form<PetscScalar>& a,
+                                     const std::string& type)
 {
-    // Build sparsitypattern
-    dolfinx::la::SparsityPattern sp =
-        dolfinx_hdg::fem::create_sparsity_pattern(a);
+  // Build sparsitypattern
+//   la::SparsityPattern pattern = fem::create_sparsity_pattern(a);
 
-    // Finalise communication
-    sp.assemble();
+  // Finalise communication
+//   pattern.assemble();
 
-    return dolfinx::la::petsc::create_matrix(a.mesh()->comm(), sp, type);
+//   return la::petsc::create_matrix(a.mesh()->comm(), pattern, type);
+    std::cout << "TODO dolfinx_hdg::fem::create_matrix\n";
 }

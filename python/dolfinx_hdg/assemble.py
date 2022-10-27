@@ -71,7 +71,7 @@ def _assemble_matrix_form(a, bcs = [],
     """Assemble bilinear form into a matrix. The returned matrix is not
     finalised, i.e. ghost values are not accumulated.
     """
-    # A = .fem.petsc.create_matrix(a)
+    A = dolfinx_hdg.cpp.create_matrix(a)
     # _assemble_matrix_mat(A, a, bcs, diagonal, constants, coeffs)
     # return A
     print("TODO _assemble_matrix_form")
