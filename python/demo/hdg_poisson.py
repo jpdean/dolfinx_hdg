@@ -16,7 +16,8 @@ import numba
 from dolfinx.cpp.fem import Form_float64
 import sys
 from dolfinx.common import Timer, list_timings, TimingType
-import dolfinx_hdg
+from dolfinx_hdg.assemble import assemble_matrix as assemble_matrix_hdg
+
 
 
 def main():
@@ -416,7 +417,7 @@ def main():
     a = Form_float64(
         [Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], False, msh,
         entity_maps={facet_mesh: []})
-    # A = dolfinx_hdg.assemble.assemble_matrix(a)
+    A = assemble_matrix_hdg(a, bcs=[bc])
 
     # par_print("Sparsity")
     # with Timer("Sparsity") as t:
