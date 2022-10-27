@@ -420,24 +420,6 @@ def main():
     # NOTE Currently this only creates sparsity
     A = assemble_matrix_hdg(a, bcs=[bc])
 
-    # par_print("Sparsity")
-    # with Timer("Sparsity") as t:
-    #     sp = SparsityPattern(msh.comm, [Vbar.dofmap.index_map, Vbar.dofmap.index_map],
-    #                         [Vbar.dofmap.index_map_bs, Vbar.dofmap.index_map_bs])
-
-    #     # FIXME THIS WILL BE SLOW. pybind?
-    #     def create_sparsity_pattern():
-    #         for cell in range(num_cells):
-    #             cell_facets = c_to_facet_mesh_f[cell]
-    #             for facet_0 in cell_facets:
-    #                 dofs_0 = Vbar_dofmap[facet_0].astype(np.int32)
-    #                 for facet_1 in cell_facets:
-    #                     dofs_1 = Vbar_dofmap[facet_1].astype(np.int32)
-    #                     sp.insert(dofs_0, dofs_1)
-
-    #     create_sparsity_pattern()
-    #     sp.assemble()
-
     par_print("Assemble mat")
     with Timer("Assemble mat") as t:
         assemble_matrix_hdg_numba(
