@@ -55,12 +55,22 @@ namespace dolfinx_hdg::fem
             {
                 for (int local_facet_0 = 0; local_facet_0 < num_cell_facets; ++local_facet_0)
                 {
-                    std::cout << cell << " " << local_facet_0 << "\n";
+                    // FIXME Tidy
+                    const std::array cell_local_facet_0 = {cell, local_facet_0};
+                    const std::int32_t facet_0 = entity_map_0(cell_local_facet_0);
+
+                    for (int local_facet_1 = 0; local_facet_1 < num_cell_facets; ++local_facet_1)
+                    {
+                        const std::array cell_local_facet_1 = {cell, local_facet_1};
+                        const std::int32_t facet_1 = entity_map_1(cell_local_facet_1);
+
+                        pattern.insert(
+                            dofmaps[0].get().cell_dofs(facet_0),
+                            dofmaps[1].get().cell_dofs(facet_1));
+                    }
                 }
             }
         }
-
-        std::cout << "TODO create_sparsity_pattern\n";
 
         return pattern;
     }
