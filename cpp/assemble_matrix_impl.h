@@ -339,9 +339,9 @@ namespace dolfinx_hdg::fem::impl
                     }
                 }
             }
-        }
 
-        mat_set(dofs0, dofs1, Ae);
+            mat_set(dofs0, dofs1, Ae);
+        }
     }
 
     template <typename T, typename U>
