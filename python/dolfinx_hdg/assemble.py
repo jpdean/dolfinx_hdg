@@ -72,8 +72,25 @@ def _assemble_matrix_form(a, bcs = [],
     finalised, i.e. ghost values are not accumulated.
     """
     A = dolfinx_hdg.cpp.create_matrix(a)
-    # _assemble_matrix_mat(A, a, bcs, diagonal, constants, coeffs)
+    _assemble_matrix_mat(A, a, bcs, diagonal, constants, coeffs)
     print("TODO _assemble_matrix_form")
+    return A
+
+
+@assemble_matrix.register
+def _assemble_matrix_mat(A: PETSc.Mat, a, bcs = [],
+                         diagonal = 1.0, constants=None, coeffs=None):
+    """Assemble bilinear form into a matrix. The returned matrix is not
+    finalised, i.e. ghost values are not accumulated.
+
+    """
+    # constants = _pack_constants(a) if constants is None else constants
+    # coeffs = _pack_coefficients(a) if coeffs is None else coeffs
+    # _cpp.fem.petsc.assemble_matrix(A, a, constants, coeffs, bcs)
+    # if a.function_spaces[0] is a.function_spaces[1]:
+    #     A.assemblyBegin(PETSc.Mat.AssemblyType.FLUSH)
+    #     A.assemblyEnd(PETSc.Mat.AssemblyType.FLUSH)
+    #     _cpp.fem.petsc.insert_diagonal(A, a.function_spaces[0], bcs, diagonal)
     return A
 
 # @assemble_matrix.register(PETSc.Mat)
