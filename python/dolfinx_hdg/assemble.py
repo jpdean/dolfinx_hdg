@@ -4,6 +4,7 @@ import dolfinx
 import dolfinx.cpp
 import dolfinx_hdg.cpp
 from dolfinx.fem.forms import FormMetaClass
+from dolfinx.fem.assemble import pack_constants, pack_coefficients
 
 
 # @functools.singledispatch
@@ -85,10 +86,12 @@ def _assemble_matrix_mat(A: PETSc.Mat, a, bcs = [],
     """
 
     # TODO Pack constants and coeffs
-    # constants = _pack_constants(a) if constants is None else constants
-    # coeffs = _pack_coefficients(a) if coeffs is None else coeffs
+    # constants = pack_constants(a) if constants is None else constants
+    # coeffs = pack_coefficients(a) if coeffs is None else coeffs
+
     constants = []
-    coeffs = {}
+    import numpy as np
+    coeffs = {(dolfinx.fem.IntegralType.cell, -1): np.zeros(shape=(0, 0), dtype=np.float64)}
 
     dolfinx_hdg.cpp.assemble_matrix(A, a, constants, coeffs, bcs)
     # if a.function_spaces[0] is a.function_spaces[1]:

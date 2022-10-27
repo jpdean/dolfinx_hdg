@@ -6,7 +6,7 @@
 #include <dolfinx/fem/utils.h>
 #include <dolfinx/mesh/Mesh.h>
 #include <iostream>
-// #include "assemble_matrix_impl.h"
+#include "assemble_matrix_impl.h"
 // #include "assemble_vector_impl.h"
 #include <vector>
 #include <dolfinx/fem/assembler.h>
@@ -85,8 +85,8 @@ namespace dolfinx_hdg::fem
         }
 
         // Assemble
-        // impl::assemble_matrix(mat_add, a, constants, coefficients, dof_marker0,
-        //                       dof_marker1);
+        impl::assemble_matrix(mat_add, a, constants, coefficients, dof_marker0,
+                              dof_marker1);
         std::cout << "assemble_matrix cpp\n";
     }
 
