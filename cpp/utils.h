@@ -5,6 +5,7 @@
 #include <dolfinx/fem/utils.h>
 #include <dolfinx/fem/DofMap.h>
 #include <dolfinx/mesh/Topology.h>
+#include <dolfinx/mesh/Mesh.h>
 
 namespace dolfinx_hdg::fem
 {
@@ -28,7 +29,7 @@ namespace dolfinx_hdg::fem
         // FIXME: cleanup these calls? Some of the happen internally again.
         const int tdim = mesh->topology().dim();
         mesh->topology_mutable().create_entities(tdim - 1);
-        mesh->topology_mutable().create_connectivity(tdim - 1, tdim);
+        mesh->topology_mutable().create_connectivity(tdim, tdim - 1);
 
         // Get common::IndexMaps for each dimension
         const std::array index_maps{dofmaps[0].get().index_map,
@@ -38,11 +39,25 @@ namespace dolfinx_hdg::fem
 
         dolfinx::la::SparsityPattern pattern(mesh->comm(), index_maps, bs);
 
+        const auto entity_map_0 = a.function_space_to_entity_map(*a.function_spaces().at(0));
+        const auto entity_map_1 = a.function_space_to_entity_map(*a.function_spaces().at(1));
+
+        const int num_cell_facets =
+            dolfinx::mesh::cell_num_entities(mesh->topology().cell_type(), tdim - 1);
+
         std::vector<int> ids = a.integral_ids(dolfinx::fem::IntegralType::cell);
         for (int id : ids)
         {
-            const std::vector<std::int32_t>& cells = a.cell_domains(id);
+            const std::vector<std::int32_t> &cells = a.cell_domains(id);
             // TODO Create sparsity
+
+            for (std::int32_t cell : cells)
+            {
+                for (int local_facet_0 = 0; local_facet_0 < num_cell_facets; ++local_facet_0)
+                {
+                    std::cout << cell << " " << local_facet_0 << "\n";
+                }
+            }
         }
 
         std::cout << "TODO create_sparsity_pattern\n";
