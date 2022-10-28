@@ -152,8 +152,16 @@ namespace dolfinx_hdg::fem
                     const std::int32_t facet = fetch_cells(cell_local_facet);
                     assert(facet >= 0);
 
-                    std::cout << facet << " ";
-                    // auto cell_coeff = c.subspan(e / estride * cstride + offset, space_dim);
+                    // TODO Generalise for cell coeffs
+                    // FIXME This may be incorrect for bs > 1 and more than one coefficient
+                    auto cell_coeff_f = c.subspan(
+                        cell * cstride + local_facet * space_dim + offset,
+                        space_dim);
+                    for (auto cell_coeff : cell_coeff_f)
+                    {
+                        std::cout << cell_coeff << " ";
+                    }
+                    std::cout << "\n";
                     // pack<T, -1>(cell_coeff, cell, bs, v, cell_info, dofmap, transformation);
                 }
             }
