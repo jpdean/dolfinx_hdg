@@ -135,8 +135,6 @@ def main():
         num_owned_cells = msh.topology.index_map(msh.topology.dim).size_local
         num_cells = num_owned_cells + \
             msh.topology.index_map(msh.topology.dim).num_ghosts
-        x_dofs = msh.geometry.dofmap.array.reshape(num_cells, num_dofs_g)
-        x = msh.geometry.x
         Vbar_dofmap = Vbar.dofmap.list.array.reshape(num_facets, Vbar_ele_space_dim).astype(
             np.dtype(PETSc.IntType))
 
@@ -178,43 +176,7 @@ def main():
 
     par_print("FFI setup")
     with Timer("FFI setup") as t:
-        # Get PETSc int and scalar types
-        if np.dtype(PETSc.ScalarType).kind == 'c':
-            complex = True
-        else:
-            complex = False
-
-        scalar_size = np.dtype(PETSc.ScalarType).itemsize
-        index_size = np.dtype(PETSc.IntType).itemsize
-
-        if index_size == 8:
-            c_int_t = "int64_t"
-        elif index_size == 4:
-            c_int_t = "int32_t"
-        else:
-            raise RuntimeError(
-                f"Cannot translate PETSc index size into a C type, index_size: {index_size}.")
-
-        if complex and scalar_size == 16:
-            c_scalar_t = "double _Complex"
-        elif complex and scalar_size == 8:
-            c_scalar_t = "float _Complex"
-        elif not complex and scalar_size == 8:
-            c_scalar_t = "double"
-        elif not complex and scalar_size == 4:
-            c_scalar_t = "float"
-        else:
-            raise RuntimeError(
-                f"Cannot translate PETSc scalar type to a C type, complex: {complex} size: {scalar_size}.")
-
         ffi = cffi.FFI()
-        # Get MatSetValuesLocal from PETSc available via cffi in ABI mode
-        ffi.cdef("""int MatSetValuesLocal(void* mat, {0} nrow, const {0}* irow,
-                                        {0} ncol, const {0}* icol, const {1}* y, int addv);
-        """.format(c_int_t, c_scalar_t))
-        petsc_lib_cffi = fem.petsc.load_petsc_lib(ffi.dlopen)
-        MatSetValues_abi = petsc_lib_cffi.MatSetValuesLocal
-
         # FIXME See if there is a better way to pass null
         null64 = np.zeros(0, dtype=np.float64)
         null32 = np.zeros(0, dtype=np.int32)
