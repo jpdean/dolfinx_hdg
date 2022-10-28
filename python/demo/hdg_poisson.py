@@ -18,6 +18,7 @@ import sys
 from dolfinx.common import Timer, list_timings, TimingType
 from dolfinx_hdg.assemble import assemble_matrix as assemble_matrix_hdg
 from dolfinx_hdg.assemble import assemble_vector as assemble_vector_hdg
+from dolfinx_hdg.assemble import pack_coefficients
 
 
 def main():
@@ -374,47 +375,49 @@ def main():
         # over all cells
         integrals = {fem.IntegralType.cell: {-1: (backsub.address, [])}}
         u_form = Form_float64([V._cpp_object], integrals,
-                              [], [], False, None, {})
+                              [ubar._cpp_object], [], False, None, {})
 
     u = fem.Function(V)
 
-    # TODO Use numba
-    par_print("Pack coeffs")
-    with Timer("Pack coeffs") as t:
-        coeffs = np.zeros((num_cells, Vbar_ele_space_dim * num_cell_facets))
-        for cell in range(num_cells):
-            cell_facets = c_to_facet_mesh_f[cell]
-            for local_facet, facet in enumerate(cell_facets):
-                dofs = Vbar_dofmap[facet]
-                coeffs[
-                    cell,
-                    Vbar_ele_space_dim * local_facet:
-                    Vbar_ele_space_dim * local_facet + Vbar_ele_space_dim] = \
-                    ubar.x.array[dofs]
-        coeffs = {(IntegralType.cell, -1): coeffs}
+    pack_coefficients(u_form)
 
-    par_print("Assemble vec")
-    with Timer("Assemble vec") as t:
-        fem.assemble_vector(u.x.array, u_form, coeffs=coeffs)
-        u.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
-                             mode=PETSc.ScatterMode.REVERSE)
+    # # TODO Use numba
+    # par_print("Pack coeffs")
+    # with Timer("Pack coeffs") as t:
+    #     coeffs = np.zeros((num_cells, Vbar_ele_space_dim * num_cell_facets))
+    #     for cell in range(num_cells):
+    #         cell_facets = c_to_facet_mesh_f[cell]
+    #         for local_facet, facet in enumerate(cell_facets):
+    #             dofs = Vbar_dofmap[facet]
+    #             coeffs[
+    #                 cell,
+    #                 Vbar_ele_space_dim * local_facet:
+    #                 Vbar_ele_space_dim * local_facet + Vbar_ele_space_dim] = \
+    #                 ubar.x.array[dofs]
+    #     coeffs = {(IntegralType.cell, -1): coeffs}
 
-    # par_print("Write")
-    # with io.VTXWriter(msh.comm, "u.bp", u) as f:
-    #     f.write(0.0)
+    # par_print("Assemble vec")
+    # with Timer("Assemble vec") as t:
+    #     fem.assemble_vector(u.x.array, u_form, coeffs=coeffs)
+    #     u.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
+    #                          mode=PETSc.ScatterMode.REVERSE)
 
-    par_print("Compute error")
-    with Timer("Compute error") as t:
-        e_L2 = norm_L2(msh.comm, u - u_e)
-    if msh.comm.rank == 0:
-        print(f"e_L2 = {e_L2}")
+    # # par_print("Write")
+    # # with io.VTXWriter(msh.comm, "u.bp", u) as f:
+    # #     f.write(0.0)
 
-    par_print(f"total num dofs V = {V.dofmap.index_map.size_global}")
-    par_print(f"total num dofs Vbar = {Vbar.dofmap.index_map.size_global}")
-    par_print(
-        f"total dofs = {V.dofmap.index_map.size_global + Vbar.dofmap.index_map.size_global}")
-    par_print(
-        f"total dofs per process = {(V.dofmap.index_map.size_global + Vbar.dofmap.index_map.size_global) / comm.size}")
+    # par_print("Compute error")
+    # with Timer("Compute error") as t:
+    #     e_L2 = norm_L2(msh.comm, u - u_e)
+    # if msh.comm.rank == 0:
+    #     print(f"e_L2 = {e_L2}")
+
+    # par_print(f"total num dofs V = {V.dofmap.index_map.size_global}")
+    # par_print(f"total num dofs Vbar = {Vbar.dofmap.index_map.size_global}")
+    # par_print(
+    #     f"total dofs = {V.dofmap.index_map.size_global + Vbar.dofmap.index_map.size_global}")
+    # par_print(
+    #     f"total dofs per process = {(V.dofmap.index_map.size_global + Vbar.dofmap.index_map.size_global) / comm.size}")
 
 
 if __name__ == "__main__":

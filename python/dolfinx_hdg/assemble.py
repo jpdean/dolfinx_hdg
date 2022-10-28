@@ -4,7 +4,8 @@ import dolfinx
 import dolfinx.cpp
 import dolfinx_hdg.cpp
 from dolfinx.fem.forms import FormMetaClass
-from dolfinx.fem.assemble import pack_constants, pack_coefficients
+import collections
+from dolfinx_hdg.cpp import pack_coefficients as _pack_coefficients
 
 
 # @functools.singledispatch
@@ -40,6 +41,35 @@ from dolfinx.fem.assemble import pack_constants, pack_coefficients
 #         dolfinx_hdg.cpp.assemble_vector(
 #             b_local.array_w, L, mesh, facet_mesh, c[0], c[1])
 #     return b
+
+
+def pack_coefficients(form):
+    """Compute form coefficients.
+
+    Pack the `coefficients` that appear in forms. The packed
+    coefficients can be passed to an assembler. This is a
+    performance optimisation for cases where a form is assembled
+    multiple times and (some) coefficients do not change.
+
+    If ``form`` is an array of forms, this function returns an array of
+    form coefficients with the same shape as form.
+
+    Args:
+        form: A single form or array of forms to pack the constants for.
+
+    Returns:
+        Coefficients for each form.
+
+    """
+    def _pack(form):
+        if form is None:
+            return {}
+        elif isinstance(form, collections.abc.Iterable):
+            return list(map(lambda sub_form: _pack(sub_form), form))
+        else:
+            return _pack_coefficients(form)
+
+    return _pack(form)
 
 
 @functools.singledispatch
@@ -109,7 +139,8 @@ def _assemble_matrix_mat(A: PETSc.Mat, a, bcs=[],
 
     constants = []
     import numpy as np
-    coeffs = {(dolfinx.fem.IntegralType.cell, -1): np.zeros(shape=(0, 0), dtype=np.float64)}
+    coeffs = {(dolfinx.fem.IntegralType.cell, -1)
+               : np.zeros(shape=(0, 0), dtype=np.float64)}
 
     dolfinx_hdg.cpp.assemble_matrix(A, a, constants, coeffs, bcs)
     if a.function_spaces[0] is a.function_spaces[1]:
