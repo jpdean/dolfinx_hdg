@@ -15,6 +15,7 @@ find_package(DOLFINX REQUIRED)
 add_library(${PROJECT_NAME}
         hello.h hello.cpp
         petsc.h petsc.cpp
+        utils.h
         assembler.h
         assemble_matrix_impl.h
         assemble_vector_impl.h)
@@ -35,6 +36,7 @@ install(TARGETS ${PROJECT_NAME}
 install(FILES
         hello.h
         petsc.h
+        utils.h
         assembler.h
         assemble_matrix_impl.h
         assemble_vector_impl.h
