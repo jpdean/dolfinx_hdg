@@ -157,12 +157,7 @@ namespace dolfinx_hdg::fem
                     auto cell_coeff_f = c.subspan(
                         cell * cstride + local_facet * space_dim + offset,
                         space_dim);
-                    for (auto cell_coeff : cell_coeff_f)
-                    {
-                        std::cout << cell_coeff << " ";
-                    }
-                    std::cout << "\n";
-                    // pack<T, -1>(cell_coeff, cell, bs, v, cell_info, dofmap, transformation);
+                    dolfinx::fem::impl::pack<T, -1>(cell_coeff_f, facet, bs, v, cell_info, dofmap, transformation);
                 }
             }
             break;
