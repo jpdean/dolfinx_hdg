@@ -342,7 +342,16 @@ def main():
     def tabulate_tensor_L(b_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
         b_local = numba.carray(b_, num_cell_facets * Vbar_ele_space_dim,
                                dtype=PETSc.ScalarType)
-        b_local.fill(1.0)
+        coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
+        b_0 = np.zeros(V_ele_space_dim, dtype=PETSc.ScalarType)
+        kernel_0(ffi.from_buffer(b_0),
+                 ffi.from_buffer(null64),
+                 ffi.from_buffer(null64),
+                 ffi.from_buffer(coords),
+                 ffi.from_buffer(null32),
+                 ffi.from_buffer(null8))
+        A00, A10 = compute_A00_A10(coords)
+        b_local -= A10 @ np.linalg.solve(A00, b_0)
 
     @numba.cfunc(c_signature, nopython=True, fastmath=True)
     def backsub(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
@@ -392,16 +401,16 @@ def main():
         entity_maps={facet_mesh: inv_entity_map})
     b = assemble_vector_hdg(L)
 
-    par_print("Assemble vec")
-    with Timer("Assemble vec") as t:
-        b_func = fem.Function(Vbar)
+    # par_print("Assemble vec")
+    # with Timer("Assemble vec") as t:
+    #     b_func = fem.Function(Vbar)
 
-        assemble_vector_numba(b_func.x.array, x_dofs, x,
-                              Vbar_dofmap, num_owned_cells)
-        b = b_func.vector
-        b.ghostUpdate(addv=PETSc.InsertMode.ADD,
-                      mode=PETSc.ScatterMode.REVERSE)
-        fem.petsc.set_bc(b, [bc])
+    #     assemble_vector_numba(b_func.x.array, x_dofs, x,
+    #                           Vbar_dofmap, num_owned_cells)
+    #     b = b_func.vector
+    b.ghostUpdate(addv=PETSc.InsertMode.ADD,
+                  mode=PETSc.ScatterMode.REVERSE)
+    fem.petsc.set_bc(b, [bc])
 
     par_print("Setup solver")
     with Timer("Setup solver") as t:

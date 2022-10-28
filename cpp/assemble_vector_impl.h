@@ -68,6 +68,7 @@ namespace dolfinx_hdg::fem::impl
         std::vector<dolfinx::fem::impl::scalar_value_type_t<T>> coordinate_dofs(3 * num_dofs_g);
         std::vector<T> be(bs * num_dofs * num_cell_facets);
         const std::span<T> _be(be);
+        std::vector<std::int32_t> dofs(num_dofs * num_cell_facets);
 
         // Iterate over active cells
         for (std::size_t index = 0; index < cells.size(); ++index)
@@ -92,25 +93,28 @@ namespace dolfinx_hdg::fem::impl
                    coordinate_dofs.data(), nullptr, nullptr);
             // dof_transform(_be, cell_info, c_0, 1);
 
-            for (auto val : be)
+            for (int local_facet = 0; local_facet < num_cell_facets; ++local_facet)
             {
-                std::cout << val << "\n";
+                const std::array cell_local_facet = {c, local_facet};
+                const std::int32_t facet = cell_map(cell_local_facet);
+                auto dofs_f = dofmap.links(facet);
+                std::copy_n(dofs_f.begin(), dofs_f.size(), dofs.begin() + num_dofs * local_facet);
             }
 
-            // // Scatter cell vector to 'global' vector array
-            // auto dofs = dofmap.links(c_0);
-            // if constexpr (_bs > 0)
-            // {
-            //     for (int i = 0; i < num_dofs; ++i)
-            //         for (int k = 0; k < _bs; ++k)
-            //             b[_bs * dofs[i] + k] += be[_bs * i + k];
-            // }
-            // else
-            // {
-            //     for (int i = 0; i < num_dofs; ++i)
-            //         for (int k = 0; k < bs; ++k)
-            //             b[bs * dofs[i] + k] += be[bs * i + k];
-            // }
+            // Scatter cell vector to 'global' vector array
+            if constexpr (_bs > 0)
+            {
+                // FIXME This might be incorrect for bs > 1
+                for (int i = 0; i < num_dofs * num_cell_facets; ++i)
+                    for (int k = 0; k < _bs; ++k)
+                        b[_bs * dofs[i] + k] += be[_bs * i + k];
+            }
+            else
+            {
+                for (int i = 0; i < num_dofs * num_cell_facets; ++i)
+                    for (int k = 0; k < bs; ++k)
+                        b[bs * dofs[i] + k] += be[bs * i + k];
+            }
         }
     }
 
