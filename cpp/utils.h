@@ -6,6 +6,12 @@
 #include <dolfinx/fem/DofMap.h>
 #include <dolfinx/mesh/Topology.h>
 #include <dolfinx/mesh/Mesh.h>
+#include <array>
+#include <functional>
+#include <iterator>
+#include <vector>
+#include <span>
+#include <iostream>
 
 namespace dolfinx_hdg::fem
 {
@@ -75,6 +81,86 @@ namespace dolfinx_hdg::fem
         return pattern;
     }
 
+    /// @brief Pack a single coefficient for a set of active entities
+    ///
+    /// @param[out] c The coefficient to be packed
+    /// @param[in] cstride The total number of coefficient values to pack
+    /// for each entity
+    /// @param[in] u The function to extract data from
+    /// @param[in] cell_info Array of bytes describing which transformation
+    /// has to be applied on the cell to map it to the reference element
+    /// @param[in] entities The set of active entities
+    /// @param[in] estride The stride for each entity in active entities.
+    /// @param[in] fetch_cells Function that fetches the cell index for an
+    /// entity in active_entities (signature:
+    /// `std::function<std::int32_t(E::value_type)>`)
+    /// @param[in] offset The offset for c
+    template <typename T, typename Functor>
+    void pack_coefficient_entity(const std::span<T> &c, int cstride,
+                                 const dolfinx::fem::Function<T> &u,
+                                 const std::span<const std::uint32_t> &cell_info,
+                                 const std::span<const std::int32_t> &cells,
+                                 std::int32_t num_cell_facets, Functor fetch_cells,
+                                 std::int32_t offset)
+    {
+        // Read data from coefficient "u"
+        const std::span<const T> &v = u.x()->array();
+        const dolfinx::fem::DofMap &dofmap = *u.function_space()->dofmap();
+        std::shared_ptr<const dolfinx::fem::FiniteElement> element = u.function_space()->element();
+        int space_dim = element->space_dimension();
+        const auto transformation = element->get_dof_transformation_function<T>(false, true);
+
+        const int bs = dofmap.bs();
+        switch (bs)
+        {
+            //   case 1:
+            //     for (std::size_t e = 0; e < entities.size(); e += estride)
+            //     {
+            //       auto entity = entities.subspan(e, estride);
+            //       std::int32_t cell = fetch_cells(entity);
+            //       assert(cell >= 0);
+            //       auto cell_coeff = c.subspan(e / estride * cstride + offset, space_dim);
+            //       pack<T, 1>(cell_coeff, cell, bs, v, cell_info, dofmap, transformation);
+            //     }
+            //     break;
+            //   case 2:
+            //     for (std::size_t e = 0; e < entities.size(); e += estride)
+            //     {
+            //       auto entity = entities.subspan(e, estride);
+            //       std::int32_t cell = fetch_cells(entity);
+            //       assert(cell >= 0);
+            //       auto cell_coeff = c.subspan(e / estride * cstride + offset, space_dim);
+            //       pack<T, 2>(cell_coeff, cell, bs, v, cell_info, dofmap, transformation);
+            //     }
+            //     break;
+            //   case 3:
+            //     for (std::size_t e = 0; e < entities.size(); e += estride)
+            //     {
+            //       auto entity = entities.subspan(e, estride);
+            //       std::int32_t cell = fetch_cells(entity);
+            //       assert(cell >= 0);
+            //       auto cell_coeff = c.subspan(e / estride * cstride + offset, space_dim);
+            //       pack<T, 3>(cell_coeff, cell, bs, v, cell_info, dofmap, transformation);
+            //     }
+            //     break;
+        default:
+            for (std::int32_t cell = 0; cell < cells.size(); ++cell)
+            {
+                for (std::int32_t local_facet = 0; local_facet < num_cell_facets; ++local_facet)
+                {
+                    const std::array cell_local_facet = {cell, local_facet};
+                    const std::int32_t facet = fetch_cells(cell_local_facet);
+                    assert(facet >= 0);
+
+                    std::cout << facet << " ";
+                    // auto cell_coeff = c.subspan(e / estride * cstride + offset, space_dim);
+                    // pack<T, -1>(cell_coeff, cell, bs, v, cell_info, dofmap, transformation);
+                }
+            }
+            break;
+        }
+    }
+
     /// @brief Pack coefficients of a Form for a given integral type and
     /// domain id
     /// @param[in] form The Form
@@ -83,12 +169,17 @@ namespace dolfinx_hdg::fem
     /// @param[in] c The coefficient array
     /// @param[in] cstride The coefficient stride
     template <typename T>
-    void pack_coefficients(const dolfinx::fem::Form<T>& form, dolfinx::fem::IntegralType integral_type, int id,
-                       const std::span<T>& c, int cstride)
+    void pack_coefficients(const dolfinx::fem::Form<T> &form, dolfinx::fem::IntegralType integral_type, int id,
+                           const std::span<T> &c, int cstride)
     {
         // Get form coefficient offsets and dofmaps
         const std::vector<std::shared_ptr<const dolfinx::fem::Function<T>>> &coefficients = form.coefficients();
         const std::vector<int> offsets = form.coefficient_offsets();
+
+        std::shared_ptr<const mesh::Mesh> mesh = form.mesh();
+        assert(mesh);
+        const int num_cell_facets = mesh::cell_num_entities(
+            mesh->topology().cell_type(), mesh->topology().dim() - 1);
 
         if (!coefficients.empty())
         {
@@ -96,27 +187,26 @@ namespace dolfinx_hdg::fem
                 throw std::runtime_error(
                     "Could not pack coefficient. Integral type not supported.");
 
-                const std::vector<std::int32_t> &cells = form.cell_domains(id);
-                // Iterate over coefficients
-                for (std::size_t coeff = 0; coeff < coefficients.size(); ++coeff)
-                {
-                    const int tdim = form.mesh()->topology().dim();
-                    const int codim = tdim - coefficients[coeff]->function_space()->mesh()->topology().dim();
+            const std::vector<std::int32_t> &cells = form.cell_domains(id);
+            // Iterate over coefficients
+            for (std::size_t coeff = 0; coeff < coefficients.size(); ++coeff)
+            {
+                const int tdim = form.mesh()->topology().dim();
+                const int codim = tdim - coefficients[coeff]->function_space()->mesh()->topology().dim();
 
-                    // TODO Pack codim 0 coeffs
-                    if (codim != 1)
-                        continue;
+                // TODO Pack codim 0 coeffs
+                if (codim != 1)
+                    continue;
 
-                    std::cout << "TODO Pack codim 1 coeffs\n";
-                    // auto fetch_cell = form.function_space_to_entity_map(
-                    //     *coefficients[coeff]->function_space());
-                    // // Get cell info for coefficient (with respect to coefficient mesh)
-                    // std::span<const std::uint32_t> cell_info = impl::get_cell_orientation_info(*coefficients[coeff]);
-                    // impl::pack_coefficient_entity(c, cstride, *coefficients[coeff],
-                    //                               cell_info, cells, 1, fetch_cell,
-                    //                               offsets[coeff]);
-                }
+                auto fetch_cell = form.function_space_to_entity_map(
+                    *coefficients[coeff]->function_space());
+                // Get cell info for coefficient (with respect to coefficient mesh)
+                std::span<const std::uint32_t> cell_info = dolfinx::fem::impl::get_cell_orientation_info(*coefficients[coeff]);
+                dolfinx_hdg::fem::pack_coefficient_entity(c, cstride, *coefficients[coeff],
+                                                          cell_info, cells, num_cell_facets, fetch_cell,
+                                                          offsets[coeff]);
             }
+        }
     }
 
     /// @brief Allocate storage for coefficients of a pair (integral_type,

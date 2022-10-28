@@ -375,7 +375,8 @@ def main():
         # over all cells
         integrals = {fem.IntegralType.cell: {-1: (backsub.address, [])}}
         u_form = Form_float64([V._cpp_object], integrals,
-                              [ubar._cpp_object], [], False, None, {})
+                              [ubar._cpp_object], [], False, None,
+                              entity_maps={facet_mesh: inv_entity_map})
 
     u = fem.Function(V)
 
