@@ -32,6 +32,26 @@ namespace dolfinx_hdg_wrappers
                        });
         return c;
     }
+
+    template <typename T>
+    void declare_functions(py::module &m)
+    {
+        m.def(
+            "assemble_vector",
+            [](py::array_t<T, py::array::c_style> b, const dolfinx::fem::Form<T> &L,
+               const py::array_t<T, py::array::c_style> &constants,
+               const std::map<std::pair<dolfinx::fem::IntegralType, int>,
+                              py::array_t<T, py::array::c_style>> &coefficients)
+            {
+                dolfinx_hdg::fem::assemble_vector<T>(
+                    std::span(b.mutable_data(), b.size()), L,
+                    std::span(constants.data(), constants.size()),
+                    py_to_cpp_coeffs(coefficients));
+            },
+            py::arg("b"), py::arg("L"), py::arg("constants"), py::arg("coeffs"),
+            "Assemble linear form into an existing vector with pre-packed constants "
+            "and coefficients");
+    }
 }
 
 PYBIND11_MODULE(cpp, m)
@@ -63,6 +83,11 @@ PYBIND11_MODULE(cpp, m)
         py::arg("A"), py::arg("a"), py::arg("constants"), py::arg("coeffs"),
         py::arg("bcs"),
         "Assemble bilinear form into an existing PETSc matrix");
+
+    dolfinx_hdg_wrappers::declare_functions<double>(m);
+    dolfinx_hdg_wrappers::declare_functions<float>(m);
+    dolfinx_hdg_wrappers::declare_functions<std::complex<double>>(m);
+    dolfinx_hdg_wrappers::declare_functions<std::complex<float>>(m);
 
     // m.def("create_sparsity_pattern",
     //       &dolfinx_hdg::fem::create_sparsity_pattern<PetscScalar>,

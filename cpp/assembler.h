@@ -41,6 +41,25 @@ namespace dolfinx_hdg::fem
     //                     dolfinx::fem::make_coefficients_span(coefficients));
     // }
 
+    /// Assemble linear form into a vector, The caller supplies the form
+    /// constants and coefficients for this version, which has efficiency
+    /// benefits if the data can be re-used for multiple calls.
+    /// @param[in,out] b The vector to be assembled. It will not be zeroed
+    /// before assembly.
+    /// @param[in] L The linear forms to assemble into b
+    /// @param[in] constants The constants that appear in `L`
+    /// @param[in] coefficients The coefficients that appear in `L`
+    template <typename T>
+    void assemble_vector(
+        std::span<T> b, const dolfinx::fem::Form<T> &L,
+        const std::span<const T> &constants,
+        const std::map<std::pair<dolfinx::fem::IntegralType, int>,
+                       std::pair<std::span<const T>, int>> &coefficients)
+    {
+        std::cout << "TODO call impl::assemble_vector\n";
+        // impl::assemble_vector(b, L, constants, coefficients);
+    }
+
     /// Assemble bilinear form into a matrix
     /// @param[in] mat_add The function for adding values into the matrix
     /// @param[in] a The bilinear from to assemble

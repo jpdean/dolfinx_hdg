@@ -73,7 +73,7 @@ def _assemble_vector_form(L, constants=None, coeffs=None):
         coeffs = {(dolfinx.fem.IntegralType.cell, -1):
                   np.zeros(shape=(0, 0), dtype=np.float64)}
         print("TODO Assemble vec")
-        # _cpp.fem.assemble_vector(b_local.array_w, L, constants, coeffs)
+        dolfinx_hdg.cpp.assemble_vector(b_local.array_w, L, constants, coeffs)
     return b
 
 
