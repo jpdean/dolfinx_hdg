@@ -314,7 +314,6 @@ def main():
     a = Form_float64(
         [Vbar._cpp_object, Vbar._cpp_object], integrals_a, [], [], False, msh,
         entity_maps={facet_mesh: inv_entity_map})
-    # NOTE Currently this only creates sparsity
     A = assemble_matrix_hdg(a, bcs=[bc])
     A.assemble()
 
@@ -361,11 +360,7 @@ def main():
     with Timer("Solve") as t:
         # Compute solution
         ubar = fem.Function(Vbar)
-        import time
-        start = time.time()
         ksp.solve(b, ubar.vector)
-        end = time.time()
-        par_print(f"solve time = {end - start}")
         ubar.x.scatter_forward()
 
     # par_print("Write")
