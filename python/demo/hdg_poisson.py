@@ -1,8 +1,5 @@
 # TODO Add fastmath flag to numba (see custom assembler demos)
 
-from dolfinx.cpp.fem.petsc import insert_diagonal
-from dolfinx.cpp.la.petsc import create_matrix
-from dolfinx.cpp.la import SparsityPattern
 from mpi4py import MPI
 from dolfinx import mesh, fem, jit, io
 from dolfinx.cpp.mesh import cell_num_entities
@@ -131,22 +128,11 @@ def main():
         f = - div(grad(u_e))
         L_0 = inner(f, v) * dx_c
 
-    par_print("Create dofmap, inv ent map, and connectivities")
-    with Timer("Create dofmap, inv ent map, and connectivities") as t:
-        num_owned_cells = msh.topology.index_map(msh.topology.dim).size_local
-        num_cells = num_owned_cells + \
-            msh.topology.index_map(msh.topology.dim).num_ghosts
-        Vbar_dofmap = Vbar.dofmap.list.array.reshape(num_facets, Vbar_ele_space_dim).astype(
-            np.dtype(PETSc.IntType))
-
+    par_print("Create inv ent map")
+    with Timer("Create inv ent map") as t:
         inv_entity_map = np.full_like(entity_map, -1)
         for i, f in enumerate(entity_map):
             inv_entity_map[f] = i
-
-        c_to_f = msh.topology.connectivity(
-            msh.topology.dim, msh.topology.dim - 1)
-        c_to_facet_mesh_f = inv_entity_map[c_to_f.array].reshape(
-            num_cells, num_cell_facets)
 
     nptype = "float64"
     ffcxtype = "double"
