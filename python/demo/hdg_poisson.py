@@ -283,44 +283,6 @@ def main():
             A10[start_row:end_row, :] += A10_f[:, :]
         return A00, A10
 
-    @numba.njit(fastmath=True)
-    def sink(*args):
-        pass
-
-    @numba.njit(fastmath=True)
-    def assemble_vector_numba(b, x_dofs, x, dofmap, num_cells):
-        coords = np.zeros((num_dofs_g, 3))
-        b_local = np.zeros(num_cell_facets * Vbar_ele_space_dim,
-                           dtype=PETSc.ScalarType)
-        b_0 = np.zeros(V_ele_space_dim, dtype=PETSc.ScalarType)
-        b_local_f = np.zeros(Vbar_ele_space_dim, dtype=PETSc.ScalarType)
-        for cell in range(num_cells):
-            for j in range(num_dofs_g):
-                coords[j] = x[x_dofs[cell, j], :]
-            b_local.fill(0.0)
-
-            b_0.fill(0.0)
-            kernel_0(ffi.from_buffer(b_0),
-                     ffi.from_buffer(null64),
-                     ffi.from_buffer(null64),
-                     ffi.from_buffer(coords),
-                     ffi.from_buffer(null32),
-                     ffi.from_buffer(null8))
-
-            A00, A10 = compute_A00_A10(coords)
-            b_local -= A10 @ np.linalg.solve(A00, b_0)
-
-            cell_facets = c_to_facet_mesh_f[cell]
-            for local_facet, facet in enumerate(cell_facets):
-                dofs = dofmap[facet, :]
-
-                b_local_f.fill(0.0)
-                b_local_f += b_local[
-                    local_facet * Vbar_ele_space_dim:
-                    local_facet * Vbar_ele_space_dim + Vbar_ele_space_dim]
-                b[dofs] += b_local_f
-        sink(b_local, b_local_f)
-
     c_signature = numba.types.void(
         numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
         numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
@@ -400,14 +362,6 @@ def main():
         [Vbar._cpp_object], integrals_L, [], [], False, msh,
         entity_maps={facet_mesh: inv_entity_map})
     b = assemble_vector_hdg(L)
-
-    # par_print("Assemble vec")
-    # with Timer("Assemble vec") as t:
-    #     b_func = fem.Function(Vbar)
-
-    #     assemble_vector_numba(b_func.x.array, x_dofs, x,
-    #                           Vbar_dofmap, num_owned_cells)
-    #     b = b_func.vector
     b.ghostUpdate(addv=PETSc.InsertMode.ADD,
                   mode=PETSc.ScatterMode.REVERSE)
     fem.petsc.set_bc(b, [bc])
