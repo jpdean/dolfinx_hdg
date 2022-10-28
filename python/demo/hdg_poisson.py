@@ -378,8 +378,6 @@ def main():
 
     integrals_a = {
         fem.IntegralType.cell: {-1: (tabulate_tensor_a.address, [])}}
-    # HACK: Pass empty entity maps to prevent Form complaining about different
-    # meshes
     a = Form_float64(
         [Vbar._cpp_object, Vbar._cpp_object], integrals_a, [], [], False, msh,
         entity_maps={facet_mesh: inv_entity_map})
