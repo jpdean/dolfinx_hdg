@@ -136,8 +136,12 @@ namespace dolfinx_hdg::fem
         const std::vector<int> offsets = form.coefficient_offsets();
 
         // TODO This needs to be generalised for non-facet space coeffs
-        std::size_t num_entities = 0;
+        std::size_t num_cells = 0;
         int cstride = 0;
+        std::shared_ptr<const mesh::Mesh> mesh = form.mesh();
+        assert(mesh);
+        const int num_cell_facets = mesh::cell_num_entities(
+            mesh->topology().cell_type(), mesh->topology().dim() - 1);
         if (!coefficients.empty())
         {
             cstride = offsets.back();
@@ -145,14 +149,10 @@ namespace dolfinx_hdg::fem
                 throw std::runtime_error(
                     "Could not pack coefficient. Integral type not supported.");
 
-            std::size_t num_cells = form.cell_domains(id).size();
-            std::shared_ptr<const mesh::Mesh> mesh = form.mesh();
-            assert(mesh);
-            const int num_cell_facets = mesh::cell_num_entities(mesh->topology().cell_type(), mesh->topology().dim() - 1);
-            num_entities = num_cell_facets * num_cells;
+            num_cells = form.cell_domains(id).size();
         }
 
-        return {std::vector<T>(num_entities * cstride), cstride};
+        return {std::vector<T>(num_cells * num_cell_facets * cstride), num_cell_facets * cstride};
     }
 
     /// @brief Allocate memory for packed coefficients of a Form

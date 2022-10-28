@@ -379,7 +379,7 @@ def main():
 
     u = fem.Function(V)
 
-    pack_coefficients(u_form)
+    print(pack_coefficients(u_form))
 
     # # TODO Use numba
     # par_print("Pack coeffs")
