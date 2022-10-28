@@ -47,61 +47,71 @@ namespace dolfinx_hdg::fem::impl
             cell_map)
     {
         std::cout << "impl::assemble cells (vec)\n";
-        // assert(_bs < 0 or _bs == bs);
+        assert(_bs < 0 or _bs == bs);
 
-        // if (cells.empty())
-        //     return;
+        if (cells.empty())
+            return;
 
-        // // Prepare cell geometry
-        // const graph::AdjacencyList<std::int32_t> &x_dofmap = geometry.dofmap();
-        // const std::size_t num_dofs_g = geometry.cmap().dim();
-        // std::span<const double> x_g = geometry.x();
+        // Prepare cell geometry
+        const dolfinx::mesh::Geometry &geometry = mesh.geometry();
+        const dolfinx::graph::AdjacencyList<std::int32_t> &x_dofmap = geometry.dofmap();
+        const std::size_t num_dofs_g = geometry.cmap().dim();
+        std::span<const double> x_g = geometry.x();
 
-        // // FIXME: Add proper interface for num_dofs
-        // // Create data structures used in assembly
-        // const int num_dofs = dofmap.links(0).size();
-        // std::vector<scalar_value_type_t<T>> coordinate_dofs(3 * num_dofs_g);
-        // std::vector<T> be(bs * num_dofs);
-        // const std::span<T> _be(be);
+        const int num_cell_facets =
+            dolfinx::mesh::cell_num_entities(mesh.topology().cell_type(),
+                                             mesh.topology().dim() - 1);
 
-        // // Iterate over active cells
-        // for (std::size_t index = 0; index < cells.size(); ++index)
-        // {
-        //     std::int32_t c = cells[index];
-        //     // Map the cell in the integration domain to the cell in the mesh
-        //     // the function space is defined over
-        //     std::int32_t c_0 = cell_map(cells.subspan(index, 1));
-        //     assert(c_0 >= 0);
+        // FIXME: Add proper interface for num_dofs
+        // Create data structures used in assembly
+        const int num_dofs = dofmap.links(0).size();
+        std::vector<dolfinx::fem::impl::scalar_value_type_t<T>> coordinate_dofs(3 * num_dofs_g);
+        std::vector<T> be(bs * num_dofs * num_cell_facets);
+        const std::span<T> _be(be);
 
-        //     // Get cell coordinates/geometry
-        //     auto x_dofs = x_dofmap.links(c);
-        //     for (std::size_t i = 0; i < x_dofs.size(); ++i)
-        //     {
-        //         std::copy_n(std::next(x_g.begin(), 3 * x_dofs[i]), 3,
-        //                     std::next(coordinate_dofs.begin(), 3 * i));
-        //     }
+        // Iterate over active cells
+        for (std::size_t index = 0; index < cells.size(); ++index)
+        {
+            std::int32_t c = cells[index];
+            // Map the cell in the integration domain to the cell in the mesh
+            // the function space is defined over
+            // std::int32_t c_0 = cell_map(cells.subspan(index, 1));
+            // assert(c_0 >= 0);
 
-        //     // Tabulate vector for cell
-        //     std::fill(be.begin(), be.end(), 0);
-        //     kernel(be.data(), coeffs.data() + index * cstride, constants.data(),
-        //            coordinate_dofs.data(), nullptr, nullptr);
-        //     dof_transform(_be, cell_info, c_0, 1);
+            // Get cell coordinates/geometry
+            auto x_dofs = x_dofmap.links(c);
+            for (std::size_t i = 0; i < x_dofs.size(); ++i)
+            {
+                std::copy_n(std::next(x_g.begin(), 3 * x_dofs[i]), 3,
+                            std::next(coordinate_dofs.begin(), 3 * i));
+            }
 
-        //     // Scatter cell vector to 'global' vector array
-        //     auto dofs = dofmap.links(c_0);
-        //     if constexpr (_bs > 0)
-        //     {
-        //         for (int i = 0; i < num_dofs; ++i)
-        //             for (int k = 0; k < _bs; ++k)
-        //                 b[_bs * dofs[i] + k] += be[_bs * i + k];
-        //     }
-        //     else
-        //     {
-        //         for (int i = 0; i < num_dofs; ++i)
-        //             for (int k = 0; k < bs; ++k)
-        //                 b[bs * dofs[i] + k] += be[bs * i + k];
-        //     }
-        // }
+            // Tabulate vector for cell
+            std::fill(be.begin(), be.end(), 0);
+            kernel(be.data(), coeffs.data() + index * cstride, constants.data(),
+                   coordinate_dofs.data(), nullptr, nullptr);
+            // dof_transform(_be, cell_info, c_0, 1);
+
+            for (auto val : be)
+            {
+                std::cout << val << "\n";
+            }
+
+            // // Scatter cell vector to 'global' vector array
+            // auto dofs = dofmap.links(c_0);
+            // if constexpr (_bs > 0)
+            // {
+            //     for (int i = 0; i < num_dofs; ++i)
+            //         for (int k = 0; k < _bs; ++k)
+            //             b[_bs * dofs[i] + k] += be[_bs * i + k];
+            // }
+            // else
+            // {
+            //     for (int i = 0; i < num_dofs; ++i)
+            //         for (int k = 0; k < bs; ++k)
+            //             b[bs * dofs[i] + k] += be[bs * i + k];
+            // }
+        }
     }
 
     /// Assemble linear form into a vector
