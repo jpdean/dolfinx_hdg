@@ -7,7 +7,7 @@
 #include <dolfinx/mesh/Mesh.h>
 #include <iostream>
 #include "assemble_matrix_impl.h"
-// #include "assemble_vector_impl.h"
+#include "assemble_vector_impl.h"
 #include <vector>
 #include <dolfinx/fem/assembler.h>
 #include <dolfinx/fem/Constant.h>
@@ -57,7 +57,7 @@ namespace dolfinx_hdg::fem
                        std::pair<std::span<const T>, int>> &coefficients)
     {
         std::cout << "TODO call impl::assemble_vector\n";
-        // impl::assemble_vector(b, L, constants, coefficients);
+        impl::assemble_vector(b, L, constants, coefficients);
     }
 
     /// Assemble bilinear form into a matrix
