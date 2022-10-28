@@ -17,6 +17,7 @@ from dolfinx.cpp.fem import Form_float64
 import sys
 from dolfinx.common import Timer, list_timings, TimingType
 from dolfinx_hdg.assemble import assemble_matrix as assemble_matrix_hdg
+from dolfinx_hdg.assemble import assemble_vector as assemble_vector_hdg
 
 
 def main():
@@ -287,7 +288,7 @@ def main():
         pass
 
     @numba.njit(fastmath=True)
-    def assemble_vector_hdg(b, x_dofs, x, dofmap, num_cells):
+    def assemble_vector_numba(b, x_dofs, x, dofmap, num_cells):
         coords = np.zeros((num_dofs_g, 3))
         b_local = np.zeros(num_cell_facets * Vbar_ele_space_dim,
                            dtype=PETSc.ScalarType)
@@ -329,13 +330,19 @@ def main():
         numba.types.CPointer(numba.types.uint8))
 
     @numba.cfunc(c_signature, nopython=True, fastmath=True)
-    def tabulate_tensor(A_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
+    def tabulate_tensor_a(A_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
         A_local = numba.carray(A_, (num_cell_facets * Vbar_ele_space_dim,
                                     num_cell_facets * Vbar_ele_space_dim),
                                dtype=PETSc.ScalarType)
         coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
         A00, A10 = compute_A00_A10(coords)
         A_local += compute_A11(coords) - A10 @ np.linalg.solve(A00, A10.T)
+
+    @numba.cfunc(c_signature, nopython=True, fastmath=True)
+    def tabulate_tensor_L(b_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
+        b_local = numba.carray(b_, num_cell_facets * Vbar_ele_space_dim,
+                               dtype=PETSc.ScalarType)
+        b_local.fill(1.0)
 
     @numba.cfunc(c_signature, nopython=True, fastmath=True)
     def backsub(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
@@ -369,22 +376,30 @@ def main():
         bc_dofs_marker[bc_dofs] = True
         bc = fem.dirichletbc(PETSc.ScalarType(0.0), bc_dofs, Vbar)
 
-    integrals = {fem.IntegralType.cell: {-1: (tabulate_tensor.address, [])}}
+    integrals_a = {
+        fem.IntegralType.cell: {-1: (tabulate_tensor_a.address, [])}}
     # HACK: Pass empty entity maps to prevent Form complaining about different
     # meshes
     a = Form_float64(
-        [Vbar._cpp_object, Vbar._cpp_object], integrals, [], [], False, msh,
+        [Vbar._cpp_object, Vbar._cpp_object], integrals_a, [], [], False, msh,
         entity_maps={facet_mesh: inv_entity_map})
     # NOTE Currently this only creates sparsity
     A = assemble_matrix_hdg(a, bcs=[bc])
     A.assemble()
 
+    integrals_L = {
+        fem.IntegralType.cell: {-1: (tabulate_tensor_L.address, [])}}
+    L = Form_float64(
+        [Vbar._cpp_object], integrals_L, [], [], False, msh,
+        entity_maps={facet_mesh: inv_entity_map})
+    b = assemble_vector_hdg(L)
+
     par_print("Assemble vec")
     with Timer("Assemble vec") as t:
         b_func = fem.Function(Vbar)
 
-        assemble_vector_hdg(b_func.x.array, x_dofs, x,
-                            Vbar_dofmap, num_owned_cells)
+        assemble_vector_numba(b_func.x.array, x_dofs, x,
+                              Vbar_dofmap, num_owned_cells)
         b = b_func.vector
         b.ghostUpdate(addv=PETSc.InsertMode.ADD,
                       mode=PETSc.ScatterMode.REVERSE)
