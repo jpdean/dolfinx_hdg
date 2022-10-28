@@ -56,7 +56,6 @@ namespace dolfinx_hdg::fem
         const std::map<std::pair<dolfinx::fem::IntegralType, int>,
                        std::pair<std::span<const T>, int>> &coefficients)
     {
-        std::cout << "TODO call impl::assemble_vector\n";
         impl::assemble_vector(b, L, constants, coefficients);
     }
 
@@ -106,7 +105,6 @@ namespace dolfinx_hdg::fem
         // Assemble
         impl::assemble_matrix(mat_add, a, constants, coefficients, dof_marker0,
                               dof_marker1);
-        std::cout << "assemble_matrix cpp\n";
     }
 
     // template <typename T>

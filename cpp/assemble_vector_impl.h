@@ -46,7 +46,6 @@ namespace dolfinx_hdg::fem::impl
         const std::function<std::int32_t(const std::span<const std::int32_t> &)> &
             cell_map)
     {
-        std::cout << "impl::assemble cells (vec)\n";
         assert(_bs < 0 or _bs == bs);
 
         if (cells.empty())
