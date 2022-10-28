@@ -296,23 +296,27 @@ def main():
         bc_dofs_marker[bc_dofs] = True
         bc = fem.dirichletbc(PETSc.ScalarType(0.0), bc_dofs, Vbar)
 
-    integrals_a = {
-        fem.IntegralType.cell: {-1: (tabulate_tensor_a.address, [])}}
-    a = Form_float64(
-        [Vbar._cpp_object, Vbar._cpp_object], integrals_a, [], [], False, msh,
-        entity_maps={facet_mesh: inv_entity_map})
-    A = assemble_matrix_hdg(a, bcs=[bc])
-    A.assemble()
+    par_print("Assemble mat")
+    with Timer("Assemble mat") as t:
+        integrals_a = {
+            fem.IntegralType.cell: {-1: (tabulate_tensor_a.address, [])}}
+        a = Form_float64(
+            [Vbar._cpp_object, Vbar._cpp_object], integrals_a, [], [], False, msh,
+            entity_maps={facet_mesh: inv_entity_map})
+        A = assemble_matrix_hdg(a, bcs=[bc])
+        A.assemble()
 
-    integrals_L = {
-        fem.IntegralType.cell: {-1: (tabulate_tensor_L.address, [])}}
-    L = Form_float64(
-        [Vbar._cpp_object], integrals_L, [], [], False, msh,
-        entity_maps={facet_mesh: inv_entity_map})
-    b = assemble_vector_hdg(L)
-    b.ghostUpdate(addv=PETSc.InsertMode.ADD,
-                  mode=PETSc.ScatterMode.REVERSE)
-    fem.petsc.set_bc(b, [bc])
+    par_print("Assemble vec")
+    with Timer("Assemble vec") as t:
+        integrals_L = {
+            fem.IntegralType.cell: {-1: (tabulate_tensor_L.address, [])}}
+        L = Form_float64(
+            [Vbar._cpp_object], integrals_L, [], [], False, msh,
+            entity_maps={facet_mesh: inv_entity_map})
+        b = assemble_vector_hdg(L)
+        b.ghostUpdate(addv=PETSc.InsertMode.ADD,
+                    mode=PETSc.ScatterMode.REVERSE)
+        fem.petsc.set_bc(b, [bc])
 
     par_print("Setup solver")
     with Timer("Setup solver") as t:
@@ -355,19 +359,22 @@ def main():
     # with io.VTXWriter(msh.comm, "ubar.bp", ubar) as f:
     #     f.write(0.0)
 
-    par_print("Create form")
-    with Timer("Create form") as t:
+    par_print("Create backsub form")
+    with Timer("Create backsub form") as t:
         # TODO Check with custom integration entities that this actually runs
         # over all cells
         integrals = {fem.IntegralType.cell: {-1: (backsub.address, [])}}
         u_form = Form_float64([V._cpp_object], integrals,
                               [ubar._cpp_object], [], False, None,
                               entity_maps={facet_mesh: inv_entity_map})
-    coeffs = pack_coefficients(u_form)
 
-    u = fem.Function(V)
-    par_print("Assemble vec")
-    with Timer("Assemble vec") as t:
+    par_print("Pack coeffs")
+    with Timer("Pack coeffs") as t:
+        coeffs = pack_coefficients(u_form)
+
+    par_print("Backsub")
+    with Timer("Backsub") as t:
+        u = fem.Function(V)
         fem.assemble_vector(u.x.array, u_form, coeffs=coeffs)
         u.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
                              mode=PETSc.ScatterMode.REVERSE)
@@ -396,4 +403,4 @@ if __name__ == "__main__":
     #     "main()", filename=f"out_python_{MPI.COMM_WORLD.rank}.profile")
     with Timer("TOTAL") as t:
         main()
-    # list_timings(MPI.COMM_WORLD, [TimingType.wall, TimingType.user])
+    list_timings(MPI.COMM_WORLD, [TimingType.wall, TimingType.user])
