@@ -163,8 +163,7 @@ def _assemble_matrix_block_form(a,
                                 diagonal = 1.0,
                                 constants=None, coeffs=None):
     """Assemble bilinear forms into matrix"""
-    print("_assemble_matrix_block_form")
-    # A = _cpp.fem.petsc.create_matrix_block(a)
+    A = dolfinx_hdg.cpp.create_matrix_block(a)
     # return _assemble_matrix_block_mat(A, a, bcs, diagonal, constants, coeffs)
 
 
