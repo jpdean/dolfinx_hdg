@@ -33,48 +33,47 @@ void dolfinx_hdg::fem::create_matrix_block(
             bs_dofs[i].push_back(_V->dofmap()->bs());
     }
 
-      auto comm = V[0][0]->mesh()->comm();
+    auto comm = V[0][0]->mesh()->comm();
 
-      // Build sparsity pattern for each block
-      std::vector<std::vector<std::unique_ptr<dolfinx::la::SparsityPattern>>> patterns(
-          V[0].size());
-      for (std::size_t row = 0; row < V[0].size(); ++row)
-      {
+    // Build sparsity pattern for each block
+    std::vector<std::vector<std::unique_ptr<dolfinx::la::SparsityPattern>>> patterns(
+        V[0].size());
+    for (std::size_t row = 0; row < V[0].size(); ++row)
+    {
         for (std::size_t col = 0; col < V[1].size(); ++col)
         {
-          const std::array<std::shared_ptr<const dolfinx::common::IndexMap>, 2> index_maps
-              = {{V[0][row]->dofmap()->index_map, V[1][col]->dofmap()->index_map}};
-          if (const dolfinx::fem::Form<PetscScalar>* form = a[row][col]; form)
-          {
-            patterns[row].push_back(std::make_unique<dolfinx::la::SparsityPattern>(
-                dolfinx_hdg::fem::create_sparsity_pattern(*form)));
-          }
-          else
-            patterns[row].push_back(nullptr);
+            const std::array<std::shared_ptr<const dolfinx::common::IndexMap>, 2> index_maps = {{V[0][row]->dofmap()->index_map, V[1][col]->dofmap()->index_map}};
+            if (const dolfinx::fem::Form<PetscScalar> *form = a[row][col]; form)
+            {
+                patterns[row].push_back(std::make_unique<dolfinx::la::SparsityPattern>(
+                    dolfinx_hdg::fem::create_sparsity_pattern(*form)));
+            }
+            else
+                patterns[row].push_back(nullptr);
         }
-      }
+    }
 
-    //   // Compute offsets for the fields
-    //   std::array<std::vector<std::pair<
-    //                  std::reference_wrapper<const common::IndexMap>, int>>,
-    //              2>
-    //       maps;
-    //   for (std::size_t d = 0; d < 2; ++d)
-    //   {
-    //     for (auto space : V[d])
-    //     {
-    //       maps[d].emplace_back(*space->dofmap()->index_map,
-    //                            space->dofmap()->index_map_bs());
-    //     }
-    //   }
+    // Compute offsets for the fields
+    std::array<std::vector<std::pair<
+                   std::reference_wrapper<const dolfinx::common::IndexMap>, int>>,
+               2>
+        maps;
+    for (std::size_t d = 0; d < 2; ++d)
+    {
+        for (auto space : V[d])
+        {
+            maps[d].emplace_back(*space->dofmap()->index_map,
+                                 space->dofmap()->index_map_bs());
+        }
+    }
 
-    //   // Create merged sparsity pattern
-    //   std::vector<std::vector<const la::SparsityPattern*>> p(V[0].size());
-    //   for (std::size_t row = 0; row < V[0].size(); ++row)
-    //     for (std::size_t col = 0; col < V[1].size(); ++col)
-    //       p[row].push_back(patterns[row][col].get());
-    //   la::SparsityPattern pattern(comm, p, maps, bs_dofs);
-    //   pattern.assemble();
+    // Create merged sparsity pattern
+    std::vector<std::vector<const dolfinx::la::SparsityPattern *>> p(V[0].size());
+    for (std::size_t row = 0; row < V[0].size(); ++row)
+        for (std::size_t col = 0; col < V[1].size(); ++col)
+            p[row].push_back(patterns[row][col].get());
+    dolfinx::la::SparsityPattern pattern(comm, p, maps, bs_dofs);
+    pattern.assemble();
 
     //   // FIXME: Add option to pass customised local-to-global map to PETSc
     //   // Mat constructor
