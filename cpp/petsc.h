@@ -22,8 +22,7 @@ namespace dolfinx_hdg::fem
     /// @return A sparse matrix  with a layout and sparsity that matches the
     /// bilinear forms. The caller is responsible for destroying the Mat
     /// object.
-    // Mat create_matrix_block(
-    void create_matrix_block(
+    Mat create_matrix_block(
         const std::vector<std::vector<const dolfinx::fem::Form<PetscScalar> *>> &a,
         const std::string &type = std::string());
 }
