@@ -75,40 +75,39 @@ void dolfinx_hdg::fem::create_matrix_block(
     dolfinx::la::SparsityPattern pattern(comm, p, maps, bs_dofs);
     pattern.assemble();
 
-    //   // FIXME: Add option to pass customised local-to-global map to PETSc
-    //   // Mat constructor
+    // FIXME: Add option to pass customised local-to-global map to PETSc
+    // Mat constructor
 
-    //   // Initialise matrix
-    //   Mat A = la::petsc::create_matrix(comm, pattern, type);
+    // Initialise matrix
+    Mat A = dolfinx::la::petsc::create_matrix(comm, pattern, type);
 
-    //   // Create row and column local-to-global maps (field0, field1, field2,
-    //   // etc), i.e. ghosts of field0 appear before owned indices of field1
-    //   std::array<std::vector<PetscInt>, 2> _maps;
-    //   for (int d = 0; d < 2; ++d)
-    //   {
-    //     // FIXME: Index map concatenation has already been computed inside
-    //     // the SparsityPattern constructor, but we also need it here to
-    //     // build the PETSc local-to-global map. Compute outside and pass
-    //     // into SparsityPattern constructor.
+    // Create row and column local-to-global maps (field0, field1, field2,
+    // etc), i.e. ghosts of field0 appear before owned indices of field1
+    std::array<std::vector<PetscInt>, 2> _maps;
+    for (int d = 0; d < 2; ++d)
+    {
+        // FIXME: Index map concatenation has already been computed inside
+        // the SparsityPattern constructor, but we also need it here to
+        // build the PETSc local-to-global map. Compute outside and pass
+        // into SparsityPattern constructor.
 
-    //     // FIXME: avoid concatenating the same maps twice in case that V[0]
-    //     // == V[1].
+        // FIXME: avoid concatenating the same maps twice in case that V[0]
+        // == V[1].
 
-    //     // Concatenate the block index map in the row and column directions
-    //     auto [rank_offset, local_offset, ghosts, _]
-    //         = common::stack_index_maps(maps[d]);
-    //     for (std::size_t f = 0; f < maps[d].size(); ++f)
-    //     {
-    //       const common::IndexMap& map = maps[d][f].first.get();
-    //       const int bs = maps[d][f].second;
-    //       const std::int32_t size_local = bs * map.size_local();
-    //       const std::vector global = map.global_indices();
-    //       for (std::int32_t i = 0; i < size_local; ++i)
-    //         _maps[d].push_back(i + rank_offset + local_offset[f]);
-    //       for (std::size_t i = size_local; i < bs * global.size(); ++i)
-    //         _maps[d].push_back(ghosts[f][i - size_local]);
-    //     }
-    //   }
+        // Concatenate the block index map in the row and column directions
+        auto [rank_offset, local_offset, ghosts, _] = dolfinx::common::stack_index_maps(maps[d]);
+        for (std::size_t f = 0; f < maps[d].size(); ++f)
+        {
+            const dolfinx::common::IndexMap &map = maps[d][f].first.get();
+            const int bs = maps[d][f].second;
+            const std::int32_t size_local = bs * map.size_local();
+            const std::vector global = map.global_indices();
+            for (std::int32_t i = 0; i < size_local; ++i)
+                _maps[d].push_back(i + rank_offset + local_offset[f]);
+            for (std::size_t i = size_local; i < bs * global.size(); ++i)
+                _maps[d].push_back(ghosts[f][i - size_local]);
+        }
+    }
 
     //   // Create PETSc local-to-global map/index sets and attach to matrix
     //   ISLocalToGlobalMapping petsc_local_to_global0;
