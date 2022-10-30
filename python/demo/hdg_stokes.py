@@ -1,10 +1,11 @@
-from dolfinx import mesh, fem, io
+from dolfinx import mesh, fem, jit, io
 from mpi4py import MPI
 from utils import reorder_mesh
 from dolfinx.cpp.mesh import cell_num_entities
 import numpy as np
 from ufl import inner, grad, dot, div
 import ufl
+from dolfinx.fem import IntegralType
 
 comm = MPI.COMM_WORLD
 rank = comm.rank
@@ -89,3 +90,36 @@ L_0 = inner(f, v) * dx_c
 inv_entity_map = np.full_like(entity_map, -1)
 for i, f in enumerate(entity_map):
     inv_entity_map[f] = i
+
+nptype = "float64"
+ffcxtype = "double"
+
+# LHS forms
+ufcx_form_00, _, _ = jit.ffcx_jit(
+    msh.comm, a_00, form_compiler_options={"scalar_type": ffcxtype})
+kernel_00_cell = getattr(ufcx_form_00.integrals(IntegralType.cell)[0],
+                         f"tabulate_tensor_{nptype}")
+kernel_00_facet = getattr(ufcx_form_00.integrals(IntegralType.exterior_facet)[0],
+                          f"tabulate_tensor_{nptype}")
+ufcx_form_10, _, _ = jit.ffcx_jit(
+    msh.comm, a_10, form_compiler_options={"scalar_type": ffcxtype})
+kernel_10 = getattr(ufcx_form_10.integrals(IntegralType.cell)[0],
+                    f"tabulate_tensor_{nptype}")
+ufcx_form_20, _, _ = jit.ffcx_jit(
+    msh.comm, a_20, form_compiler_options={"scalar_type": ffcxtype})
+kernel_20 = getattr(ufcx_form_20.integrals(IntegralType.exterior_facet)[0],
+                    f"tabulate_tensor_{nptype}")
+ufcx_form_30, _, _ = jit.ffcx_jit(
+    msh.comm, a_30, form_compiler_options={"scalar_type": ffcxtype})
+kernel_30 = getattr(ufcx_form_30.integrals(IntegralType.exterior_facet)[0],
+                    f"tabulate_tensor_{nptype}")
+ufcx_form_22, _, _ = jit.ffcx_jit(
+    msh.comm, a_22, form_compiler_options={"scalar_type": ffcxtype})
+kernel_22 = getattr(ufcx_form_22.integrals(IntegralType.exterior_facet)[0],
+                    f"tabulate_tensor_{nptype}")
+
+# RHS forms
+ufcx_form_0, _, _ = jit.ffcx_jit(
+    msh.comm, L_0, form_compiler_options={"scalar_type": ffcxtype})
+kernel_0 = getattr(ufcx_form_0.integrals(IntegralType.cell)[0],
+                   f"tabulate_tensor_{nptype}")
