@@ -138,6 +138,11 @@ PYBIND11_MODULE(cpp, m)
         py::arg("bcs"),
         "Assemble bilinear form into an existing PETSc matrix");
 
+    m.def("create_matrix_block", &dolfinx_hdg::fem::create_matrix_block,
+          py::return_value_policy::take_ownership, py::arg("a"),
+          py::arg("type") = std::string(),
+          "Create monolithic sparse matrix for stacked bilinear forms.");
+
     dolfinx_hdg_wrappers::declare_functions<double>(m);
     dolfinx_hdg_wrappers::declare_functions<float>(m);
     dolfinx_hdg_wrappers::declare_functions<std::complex<double>>(m);
