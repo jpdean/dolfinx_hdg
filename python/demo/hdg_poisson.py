@@ -16,34 +16,13 @@ from dolfinx.common import Timer, list_timings, TimingType
 from dolfinx_hdg.assemble import assemble_matrix as assemble_matrix_hdg
 from dolfinx_hdg.assemble import assemble_vector as assemble_vector_hdg
 from dolfinx_hdg.assemble import pack_coefficients
+from utils import reorder_mesh
 
 
 def main():
     def norm_L2(comm, v):
         return np.sqrt(comm.allreduce(fem.assemble_scalar(
             fem.form(ufl.inner(v, v) * ufl.dx)), op=MPI.SUM))
-
-    def reorder_mesh(msh):
-        # FIXME Check this is correct
-        # FIXME For a high-order mesh, the geom has more dofs so need to modify
-        # this
-        # FIXME What about quads / hexes?
-        tdim = msh.topology.dim
-        num_cell_vertices = cell_num_entities(msh.topology.cell_type, 0)
-        c_to_v = msh.topology.connectivity(tdim, 0)
-        geom_dofmap = msh.geometry.dofmap
-        vertex_imap = msh.topology.index_map(0)
-        geom_imap = msh.geometry.index_map()
-        for i in range(0, len(c_to_v.array), num_cell_vertices):
-            topo_perm = np.argsort(vertex_imap.local_to_global(
-                c_to_v.array[i:i+num_cell_vertices]))
-            geom_perm = np.argsort(geom_imap.local_to_global(
-                geom_dofmap.array[i:i+num_cell_vertices]))
-
-            c_to_v.array[i:i+num_cell_vertices] = \
-                c_to_v.array[i:i+num_cell_vertices][topo_perm]
-            geom_dofmap.array[i:i+num_cell_vertices] = \
-                geom_dofmap.array[i:i+num_cell_vertices][geom_perm]
 
     def boundary(x):
         lr = np.isclose(x[0], 0.0) | np.isclose(x[0], 1.0)
@@ -315,7 +294,7 @@ def main():
             entity_maps={facet_mesh: inv_entity_map})
         b = assemble_vector_hdg(L)
         b.ghostUpdate(addv=PETSc.InsertMode.ADD,
-                    mode=PETSc.ScatterMode.REVERSE)
+                      mode=PETSc.ScatterMode.REVERSE)
         fem.petsc.set_bc(b, [bc])
 
     par_print("Setup solver")
