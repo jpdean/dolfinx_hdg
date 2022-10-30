@@ -135,11 +135,9 @@ def _assemble_matrix_mat(A: PETSc.Mat, a, bcs=[],
     # TODO Pack constants and coeffs
     # constants = pack_constants(a) if constants is None else constants
     # coeffs = pack_coefficients(a) if coeffs is None else coeffs
-
     constants = []
     import numpy as np
-    coeffs = {(dolfinx.fem.IntegralType.cell, -1)
-               : np.zeros(shape=(0, 0), dtype=np.float64)}
+    coeffs = {(dolfinx.fem.IntegralType.cell, -1): np.zeros(shape=(0, 0), dtype=np.float64)}
 
     dolfinx_hdg.cpp.assemble_matrix(A, a, constants, coeffs, bcs)
     if a.function_spaces[0] is a.function_spaces[1]:
@@ -149,23 +147,79 @@ def _assemble_matrix_mat(A: PETSc.Mat, a, bcs=[],
             A, a.function_spaces[0], bcs, diagonal)
     return A
 
+
 @functools.singledispatch
 def assemble_matrix_block(a,
-                          bcs = [],
-                          diagonal = 1.0,
+                          bcs=[],
+                          diagonal=1.0,
                           constants=None, coeffs=None):
     return _assemble_matrix_block_form(a, bcs, diagonal, constants, coeffs)
 
 
 assemble_matrix_block.register(list)
+
+
 def _assemble_matrix_block_form(a,
-                                bcs = [],
-                                diagonal = 1.0,
+                                bcs=[],
+                                diagonal=1.0,
                                 constants=None, coeffs=None):
     """Assemble bilinear forms into matrix"""
     A = dolfinx_hdg.cpp.create_matrix_block(a)
-    # return _assemble_matrix_block_mat(A, a, bcs, diagonal, constants, coeffs)
+    return _assemble_matrix_block_mat(A, a, bcs, diagonal, constants, coeffs)
 
+
+@assemble_matrix_block.register
+def _assemble_matrix_block_mat(A: PETSc.Mat, a,
+                               bcs=[], diagonal: float = 1.0,
+                               constants=None, coeffs=None):
+    """Assemble bilinear forms into matrix"""
+
+    print("_assemble_matrix_block_mat")
+
+    # TODO Pack constants and coeffs
+    # constants = [[form and _pack_constants(form) for form in forms]
+    #              for forms in a] if constants is None else constants
+    # coeffs = [[{} if form is None else _pack_coefficients(
+    #     form) for form in forms] for forms in a] if coeffs is None else coeffs
+    constants = [[form and [] for form in forms]
+                 for forms in a] if constants is None else constants
+    import numpy as np
+    coeffs = [[{} if form is None else {(dolfinx.fem.IntegralType.cell, -1): np.zeros(shape=(
+        0, 0), dtype=np.float64)} for form in forms] for forms in a] if coeffs is None else coeffs
+
+    V = dolfinx.fem.petsc._extract_function_spaces(a)
+    is_rows = dolfinx.cpp.la.petsc.create_index_sets([(Vsub.dofmap.index_map, Vsub.dofmap.index_map_bs) for Vsub in V[0]])
+    is_cols = dolfinx.cpp.la.petsc.create_index_sets([(Vsub.dofmap.index_map, Vsub.dofmap.index_map_bs) for Vsub in V[1]])
+
+    # Assemble form
+    for i, a_row in enumerate(a):
+        for j, a_sub in enumerate(a_row):
+            if a_sub is not None:
+                Asub = A.getLocalSubMatrix(is_rows[i], is_cols[j])
+                dolfinx_hdg.cpp.assemble_matrix(Asub, a_sub, constants[i][j], coeffs[i][j], bcs, True)
+                A.restoreLocalSubMatrix(is_rows[i], is_cols[j], Asub)
+            elif i == j:
+                for bc in bcs:
+                    row_forms = [row_form for row_form in a_row if row_form is not None]
+                    assert len(row_forms) > 0
+                    if row_forms[0].function_spaces[0].contains(bc.function_space):
+                        raise RuntimeError(
+                            f"Diagonal sub-block ({i}, {j}) cannot be 'None' and have DirichletBC applied."
+                            " Consider assembling a zero block.")
+
+    # Flush to enable switch from add to set in the matrix
+    A.assemble(PETSc.Mat.AssemblyType.FLUSH)
+
+    # Set diagonal
+    for i, a_row in enumerate(a):
+        for j, a_sub in enumerate(a_row):
+            if a_sub is not None:
+                Asub = A.getLocalSubMatrix(is_rows[i], is_cols[j])
+                if a_sub.function_spaces[0] is a_sub.function_spaces[1]:
+                    dolfinx.cpp.fem.petsc.insert_diagonal(Asub, a_sub.function_spaces[0], bcs, diagonal)
+                A.restoreLocalSubMatrix(is_rows[i], is_cols[j], Asub)
+
+    return A
 
 # @assemble_matrix.register(PETSc.Mat)
 # def _(A: PETSc.Mat,

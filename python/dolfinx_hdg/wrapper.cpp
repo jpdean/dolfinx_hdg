@@ -127,15 +127,28 @@ PYBIND11_MODULE(cpp, m)
                           py::array_t<PetscScalar, py::array::c_style>> &
                coefficients,
            const std::vector<std::shared_ptr<
-               const dolfinx::fem::DirichletBC<PetscScalar>>> &bcs)
+               const dolfinx::fem::DirichletBC<PetscScalar>>> &bcs,
+           bool unrolled)
         {
-            dolfinx_hdg::fem::assemble_matrix(
-                dolfinx::la::petsc::Matrix::set_block_fn(A, ADD_VALUES), a,
-                std::span(constants.data(), constants.size()),
-                dolfinx_hdg_wrappers::py_to_cpp_coeffs(coefficients), bcs);
+            if (unrolled)
+            {
+                auto set_fn = dolfinx::la::petsc::Matrix::set_block_expand_fn(
+                    A, a.function_spaces()[0]->dofmap()->bs(),
+                    a.function_spaces()[1]->dofmap()->bs(), ADD_VALUES);
+                dolfinx_hdg::fem::assemble_matrix(
+                    set_fn, a, std::span(constants.data(), constants.size()),
+                    dolfinx_hdg_wrappers::py_to_cpp_coeffs(coefficients), bcs);
+            }
+            else
+            {
+                dolfinx_hdg::fem::assemble_matrix(
+                    dolfinx::la::petsc::Matrix::set_block_fn(A, ADD_VALUES), a,
+                    std::span(constants.data(), constants.size()),
+                    dolfinx_hdg_wrappers::py_to_cpp_coeffs(coefficients), bcs);
+            }
         },
         py::arg("A"), py::arg("a"), py::arg("constants"), py::arg("coeffs"),
-        py::arg("bcs"),
+        py::arg("bcs"), py::arg("unrolled") = false,
         "Assemble bilinear form into an existing PETSc matrix");
 
     m.def("create_matrix_block", &dolfinx_hdg::fem::create_matrix_block,
