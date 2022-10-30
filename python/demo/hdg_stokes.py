@@ -77,11 +77,15 @@ x = ufl.SpatialCoordinate(msh)
 f = - div(grad(u_e(x))) + grad(p_e(x))
 
 a_00 = inner(grad(u), grad(v)) * dx_c + gamma * inner(u, v) * ds_c \
-                - (inner(u, dot(grad(v), n))
-                   + inner(v, dot(grad(u), n))) * ds_c
+    - (inner(u, dot(grad(v), n))
+       + inner(v, dot(grad(u), n))) * ds_c
 a_10 = - inner(q, div(u)) * dx_c
 a_20 = inner(vbar, dot(grad(u), n)) * ds_c - gamma * inner(vbar, u) * ds_c
 a_30 = inner(dot(u, n), qbar) * ds_c
 a_22 = gamma * inner(ubar, vbar) * ds_c
 
 L_0 = inner(f, v) * dx_c
+
+inv_entity_map = np.full_like(entity_map, -1)
+for i, f in enumerate(entity_map):
+    inv_entity_map[f] = i
