@@ -9,6 +9,7 @@ from dolfinx.fem import IntegralType
 import cffi
 import numba
 from petsc4py import PETSc
+from dolfinx.cpp.fem import Form_float64
 
 
 def boundary(x):
@@ -173,3 +174,24 @@ def tabulate_tensor_a01(A_, w_, c_, coords_, entity_local_index, permutation=ffi
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
 def tabulate_tensor_a11(A_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     pass
+
+
+integrals_a00 = {fem.IntegralType.cell: {-1: (tabulate_tensor_a00.address, [])}}
+a00 = Form_float64(
+    [Vbar._cpp_object, Vbar._cpp_object], integrals_a00, [], [], False, msh,
+    entity_maps={facet_mesh: inv_entity_map})
+
+integrals_a01 = {fem.IntegralType.cell: {-1: (tabulate_tensor_a01.address, [])}}
+a01 = Form_float64(
+    [Vbar._cpp_object, Qbar._cpp_object], integrals_a01, [], [], False, msh,
+    entity_maps={facet_mesh: inv_entity_map})
+
+integrals_a10 = {fem.IntegralType.cell: {-1: (tabulate_tensor_a10.address, [])}}
+a10 = Form_float64(
+    [Qbar._cpp_object, Vbar._cpp_object], integrals_a10, [], [], False, msh,
+    entity_maps={facet_mesh: inv_entity_map})
+
+integrals_a11 = {fem.IntegralType.cell: {-1: (tabulate_tensor_a11.address, [])}}
+a11 = Form_float64(
+    [Qbar._cpp_object, Qbar._cpp_object], integrals_a11, [], [], False, msh,
+    entity_maps={facet_mesh: inv_entity_map})
