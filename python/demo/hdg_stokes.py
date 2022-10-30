@@ -200,6 +200,25 @@ a11 = Form_float64(
 a = [[a00, a01],
      [a10, a11]]
 
-# TODO BCs
+msh_boundary_facets = mesh.locate_entities_boundary(msh, fdim, boundary)
+facet_mesh_boundary_facets = [inv_entity_map[facet]
+                              for facet in msh_boundary_facets]
+dofs = fem.locate_dofs_topological(Vbar, fdim, facet_mesh_boundary_facets)
+bc_ubar = fem.dirichletbc(np.zeros(2, dtype=PETSc.ScalarType), dofs, Vbar)
 
-assemble_matrix_block_hdg(a)
+pressure_dof = fem.locate_dofs_geometrical(
+    Qbar, lambda x: np.logical_and(np.isclose(x[0], 0.0),
+                                   np.isclose(x[1], 0.0)))
+if len(pressure_dof) > 0:
+    pressure_dof = np.array([pressure_dof[0]], dtype=np.int32)
+
+bc_p = fem.dirichletbc(PETSc.ScalarType(0.0), pressure_dof, Qbar)
+
+bcs = [bc_ubar, bc_p]
+
+# # TODO BCs
+
+A = assemble_matrix_block_hdg(a)
+# assemble_matrix_block_hdg(a, bcs=bcs)
+A.assemble()
+print(A.norm())
