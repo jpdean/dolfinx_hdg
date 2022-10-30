@@ -149,6 +149,25 @@ def _assemble_matrix_mat(A: PETSc.Mat, a, bcs=[],
             A, a.function_spaces[0], bcs, diagonal)
     return A
 
+@functools.singledispatch
+def assemble_matrix_block(a,
+                          bcs = [],
+                          diagonal = 1.0,
+                          constants=None, coeffs=None):
+    return _assemble_matrix_block_form(a, bcs, diagonal, constants, coeffs)
+
+
+assemble_matrix_block.register(list)
+def _assemble_matrix_block_form(a,
+                                bcs = [],
+                                diagonal = 1.0,
+                                constants=None, coeffs=None):
+    """Assemble bilinear forms into matrix"""
+    print("_assemble_matrix_block_form")
+    # A = _cpp.fem.petsc.create_matrix_block(a)
+    # return _assemble_matrix_block_mat(A, a, bcs, diagonal, constants, coeffs)
+
+
 # @assemble_matrix.register(PETSc.Mat)
 # def _(A: PETSc.Mat,
 #       a,

@@ -10,6 +10,7 @@ import cffi
 import numba
 from petsc4py import PETSc
 from dolfinx.cpp.fem import Form_float64
+from dolfinx_hdg.assemble import assemble_matrix_block as assemble_matrix_block_hdg
 
 
 def boundary(x):
@@ -195,3 +196,10 @@ integrals_a11 = {fem.IntegralType.cell: {-1: (tabulate_tensor_a11.address, [])}}
 a11 = Form_float64(
     [Qbar._cpp_object, Qbar._cpp_object], integrals_a11, [], [], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
+
+a = [[a00, a01],
+     [a10, a11]]
+
+# TODO BCs
+
+assemble_matrix_block_hdg(a)
