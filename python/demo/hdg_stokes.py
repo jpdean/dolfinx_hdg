@@ -6,6 +6,22 @@ import numpy as np
 from ufl import inner, grad, dot, div
 import ufl
 from dolfinx.fem import IntegralType
+import cffi
+import numba
+from petsc4py import PETSc
+
+
+def boundary(x):
+    lr = np.isclose(x[0], 0.0) | np.isclose(x[0], 1.0)
+    tb = np.isclose(x[1], 0.0) | np.isclose(x[1], 1.0)
+    lrtb = lr | tb
+    if tdim == 2:
+        return lrtb
+    else:
+        assert tdim == 3
+        fb = np.isclose(x[2], 0.0) | np.isclose(x[2], 1.0)
+        return lrtb | fb
+
 
 comm = MPI.COMM_WORLD
 rank = comm.rank
@@ -123,3 +139,37 @@ ufcx_form_0, _, _ = jit.ffcx_jit(
     msh.comm, L_0, form_compiler_options={"scalar_type": ffcxtype})
 kernel_0 = getattr(ufcx_form_0.integrals(IntegralType.cell)[0],
                    f"tabulate_tensor_{nptype}")
+
+ffi = cffi.FFI()
+# FIXME See if there is a better way to pass null
+null64 = np.zeros(0, dtype=np.float64)
+null32 = np.zeros(0, dtype=np.int32)
+null8 = np.zeros(0, dtype=np.uint8)
+
+c_signature = numba.types.void(
+    numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
+    numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
+    numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
+    numba.types.CPointer(numba.types.double),
+    numba.types.CPointer(numba.types.int32),
+    numba.types.CPointer(numba.types.uint8))
+
+
+@numba.cfunc(c_signature, nopython=True, fastmath=True)
+def tabulate_tensor_a00(A_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
+    pass
+
+
+@numba.cfunc(c_signature, nopython=True, fastmath=True)
+def tabulate_tensor_a10(A_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
+    pass
+
+
+@numba.cfunc(c_signature, nopython=True, fastmath=True)
+def tabulate_tensor_a01(A_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
+    pass
+
+
+@numba.cfunc(c_signature, nopython=True, fastmath=True)
+def tabulate_tensor_a11(A_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
+    pass
