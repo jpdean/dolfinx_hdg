@@ -3,6 +3,7 @@ from mpi4py import MPI
 from utils import reorder_mesh
 from dolfinx.cpp.mesh import cell_num_entities
 import numpy as np
+import ufl
 
 comm = MPI.COMM_WORLD
 rank = comm.rank
@@ -35,3 +36,16 @@ Q = fem.FunctionSpace(msh, ("Discontinuous Lagrange", k - 1))
 Vbar = fem.VectorFunctionSpace(
     facet_mesh, ("Discontinuous Lagrange", k))
 Qbar = fem.FunctionSpace(facet_mesh, ("Discontinuous Lagrange", k))
+
+u = ufl.TrialFunction(V)
+v = ufl.TestFunction(V)
+p = ufl.TrialFunction(Q)
+q = ufl.TestFunction(Q)
+ubar = ufl.TrialFunction(Vbar)
+vbar = ufl.TestFunction(Vbar)
+pbar = ufl.TrialFunction(Qbar)
+qbar = ufl.TestFunction(Qbar)
+
+h = ufl.CellDiameter(msh)
+n = ufl.FacetNormal(msh)
+gamma = 6.0 * k**2 / h
