@@ -148,6 +148,82 @@ null64 = np.zeros(0, dtype=np.float64)
 null32 = np.zeros(0, dtype=np.int32)
 null8 = np.zeros(0, dtype=np.uint8)
 
+
+@numba.njit(fastmath=True)
+def compute_tilde(coords):
+    A_00 = np.zeros((V_ele_space_dim, V_ele_space_dim),
+                    dtype=PETSc.ScalarType)
+    A_10 = np.zeros((Q_ele_space_dim, V_ele_space_dim),
+                    dtype=PETSc.ScalarType)
+    A_20 = np.zeros((num_cell_facets * Vbar_ele_space_dim,
+                     V_ele_space_dim),
+                    dtype=PETSc.ScalarType)
+    A_20_f = np.zeros((Vbar_ele_space_dim, V_ele_space_dim),
+                      dtype=PETSc.ScalarType)
+    A_30 = np.zeros((num_cell_facets * Qbar_ele_space_dim,
+                     V_ele_space_dim),
+                    dtype=PETSc.ScalarType)
+    A_30_f = np.zeros((Qbar_ele_space_dim, V_ele_space_dim),
+                      dtype=PETSc.ScalarType)
+
+    kernel_00_cell(ffi.from_buffer(A_00),
+                   ffi.from_buffer(null64),
+                   ffi.from_buffer(null64),
+                   ffi.from_buffer(coords),
+                   ffi.from_buffer(null32),
+                   ffi.from_buffer(null8))
+    kernel_10(ffi.from_buffer(A_10),
+              ffi.from_buffer(null64),
+              ffi.from_buffer(null64),
+              ffi.from_buffer(coords),
+              ffi.from_buffer(null32),
+              ffi.from_buffer(null8))
+
+    entity_local_index = np.zeros((1), dtype=np.int32)
+    for local_f in range(num_cell_facets):
+        entity_local_index[0] = local_f
+        A_20_f.fill(0.0)
+        A_30_f.fill(0.0)
+
+        kernel_00_facet(ffi.from_buffer(A_00),
+                        ffi.from_buffer(null64),
+                        ffi.from_buffer(null64),
+                        ffi.from_buffer(coords),
+                        ffi.from_buffer(entity_local_index),
+                        ffi.from_buffer(null8))
+
+        kernel_20(ffi.from_buffer(A_20_f),
+                  ffi.from_buffer(null64),
+                  ffi.from_buffer(null64),
+                  ffi.from_buffer(coords),
+                  ffi.from_buffer(entity_local_index),
+                  ffi.from_buffer(null8))
+
+        kernel_30(ffi.from_buffer(A_30_f),
+                  ffi.from_buffer(null64),
+                  ffi.from_buffer(null64),
+                  ffi.from_buffer(coords),
+                  ffi.from_buffer(entity_local_index),
+                  ffi.from_buffer(null8))
+
+        start_row_20 = local_f * Vbar_ele_space_dim
+        end_row_20 = start_row_20 + Vbar_ele_space_dim
+        A_20[start_row_20:end_row_20, :] += A_20_f[:, :]
+
+        start_row_30 = local_f * Qbar_ele_space_dim
+        end_row_30 = start_row_30 + Qbar_ele_space_dim
+        A_30[start_row_30:end_row_30, :] += A_30_f[:, :]
+
+    # Construct tilde matrices
+    A_tilde = np.zeros((V_ele_space_dim + Q_ele_space_dim,
+                        V_ele_space_dim + Q_ele_space_dim),
+                       dtype=PETSc.ScalarType)
+    A_tilde[:V_ele_space_dim, :V_ele_space_dim] = A_00[:, :]
+    A_tilde[V_ele_space_dim:, :V_ele_space_dim] = A_10[:, :]
+    A_tilde[:V_ele_space_dim, V_ele_space_dim:] = A_10.T[:, :]
+    print(A_tilde)
+
+
 c_signature = numba.types.void(
     numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
     numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
@@ -163,6 +239,8 @@ def tabulate_tensor_a00(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Vbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     A_local += np.ones_like(A_local)
+    coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
+    compute_tilde(coords)
 
 
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
@@ -234,7 +312,7 @@ bcs = [bc_ubar, bc_p]
 
 # # TODO BCs
 
-A = assemble_matrix_block_hdg(a)
-# assemble_matrix_block_hdg(a, bcs=bcs)
+# A = assemble_matrix_block_hdg(a)
+A = assemble_matrix_block_hdg(a, bcs=bcs)
 A.assemble()
 print(A.norm())
