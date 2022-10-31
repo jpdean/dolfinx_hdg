@@ -166,6 +166,12 @@ def compute_tilde(coords):
     A_30_f = np.zeros((Qbar_ele_space_dim, V_ele_space_dim),
                       dtype=PETSc.ScalarType)
 
+    A_22 = np.zeros((num_cell_facets * Vbar_ele_space_dim,
+                     num_cell_facets * Vbar_ele_space_dim),
+                    dtype=PETSc.ScalarType)
+    A22_f = np.zeros((Vbar_ele_space_dim, Vbar_ele_space_dim),
+                     dtype=PETSc.ScalarType)
+
     kernel_00_cell(ffi.from_buffer(A_00),
                    ffi.from_buffer(null64),
                    ffi.from_buffer(null64),
@@ -206,6 +212,13 @@ def compute_tilde(coords):
                   ffi.from_buffer(entity_local_index),
                   ffi.from_buffer(null8))
 
+        kernel_22(ffi.from_buffer(A22_f),
+                  ffi.from_buffer(null64),
+                  ffi.from_buffer(null64),
+                  ffi.from_buffer(coords),
+                  ffi.from_buffer(entity_local_index),
+                  ffi.from_buffer(null8))
+
         start_row_20 = local_f * Vbar_ele_space_dim
         end_row_20 = start_row_20 + Vbar_ele_space_dim
         A_20[start_row_20:end_row_20, :] += A_20_f[:, :]
@@ -213,6 +226,10 @@ def compute_tilde(coords):
         start_row_30 = local_f * Qbar_ele_space_dim
         end_row_30 = start_row_30 + Qbar_ele_space_dim
         A_30[start_row_30:end_row_30, :] += A_30_f[:, :]
+
+        start = local_f * Vbar_ele_space_dim
+        end = start + Vbar_ele_space_dim
+        A_22[start:end, start:end] += A22_f[:, :]
 
     # Construct tilde matrices
     A_tilde = np.zeros((V_ele_space_dim + Q_ele_space_dim,
@@ -231,7 +248,8 @@ def compute_tilde(coords):
                         V_ele_space_dim + Q_ele_space_dim),
                        dtype=PETSc.ScalarType)
     C_tilde[:, :V_ele_space_dim] = A_30[:, :]
-    print(C_tilde)
+
+    return A_tilde, B_tilde, C_tilde, A_22
 
 
 c_signature = numba.types.void(
@@ -275,6 +293,7 @@ def tabulate_tensor_a11(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Qbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     A_local += 4 * np.ones_like(A_local)
+
 
 np.set_printoptions(suppress=True, linewidth=200, precision=3)
 
