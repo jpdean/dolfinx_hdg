@@ -227,12 +227,11 @@ def compute_tilde(coords):
                        dtype=PETSc.ScalarType)
     B_tilde[:, :V_ele_space_dim] = A_20[:, :]
 
-    # TODO Finish C_tilde
-    # C_tilde = np.zeros((num_cell_facets * Qbar_ele_space_dim,
-    #                     V_ele_space_dim + Q_ele_space_dim),
-    #                    dtype=PETSc.ScalarType)
-    # C_tilde[:, :V_ele_space_dim] = A_20[:, :]
-    print(B_tilde)
+    C_tilde = np.zeros((num_cell_facets * Qbar_ele_space_dim,
+                        V_ele_space_dim + Q_ele_space_dim),
+                       dtype=PETSc.ScalarType)
+    C_tilde[:, :V_ele_space_dim] = A_30[:, :]
+    print(C_tilde)
 
 
 c_signature = numba.types.void(
