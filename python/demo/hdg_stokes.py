@@ -221,7 +221,18 @@ def compute_tilde(coords):
     A_tilde[:V_ele_space_dim, :V_ele_space_dim] = A_00[:, :]
     A_tilde[V_ele_space_dim:, :V_ele_space_dim] = A_10[:, :]
     A_tilde[:V_ele_space_dim, V_ele_space_dim:] = A_10.T[:, :]
-    print(A_tilde)
+
+    B_tilde = np.zeros((num_cell_facets * Vbar_ele_space_dim,
+                        V_ele_space_dim + Q_ele_space_dim),
+                       dtype=PETSc.ScalarType)
+    B_tilde[:, :V_ele_space_dim] = A_20[:, :]
+
+    # TODO Finish C_tilde
+    # C_tilde = np.zeros((num_cell_facets * Qbar_ele_space_dim,
+    #                     V_ele_space_dim + Q_ele_space_dim),
+    #                    dtype=PETSc.ScalarType)
+    # C_tilde[:, :V_ele_space_dim] = A_20[:, :]
+    print(B_tilde)
 
 
 c_signature = numba.types.void(
@@ -266,6 +277,7 @@ def tabulate_tensor_a11(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                            dtype=PETSc.ScalarType)
     A_local += 4 * np.ones_like(A_local)
 
+np.set_printoptions(suppress=True, linewidth=200, precision=3)
 
 integrals_a00 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a00.address, [])}}
