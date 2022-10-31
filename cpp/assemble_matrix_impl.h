@@ -245,8 +245,6 @@ namespace dolfinx_hdg::fem::impl
         if (cells.empty())
             return;
 
-        std::cout << "bs0 = " << bs0 << " bs1 = " << bs1 << "\n";
-
         // Prepare cell geometry
         const dolfinx::mesh::Geometry &geometry = mesh.geometry();
         const graph::AdjacencyList<std::int32_t> &x_dofmap = geometry.dofmap();
