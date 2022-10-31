@@ -150,7 +150,7 @@ null8 = np.zeros(0, dtype=np.uint8)
 
 
 @numba.njit(fastmath=True)
-def compute_tilde(coords):
+def compute_mats(coords):
     A_00 = np.zeros((V_ele_space_dim, V_ele_space_dim),
                     dtype=PETSc.ScalarType)
     A_10 = np.zeros((Q_ele_space_dim, V_ele_space_dim),
@@ -266,9 +266,10 @@ def tabulate_tensor_a00(A_, w_, c_, coords_, entity_local_index, permutation=ffi
     A_local = numba.carray(A_, (num_cell_facets * Vbar_ele_space_dim,
                                 num_cell_facets * Vbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
-    A_local += np.ones_like(A_local)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    compute_tilde(coords)
+    A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+
+    A_local += A_22 - B_tilde @ np.linalg.solve(A_tilde, B_tilde.T)
 
 
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
@@ -276,7 +277,10 @@ def tabulate_tensor_a01(A_, w_, c_, coords_, entity_local_index, permutation=ffi
     A_local = numba.carray(A_, (num_cell_facets * Qbar_ele_space_dim,
                                 num_cell_facets * Vbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
-    A_local += 2 * np.ones_like(A_local)
+    coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
+    A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+
+    A_local -= B_tilde @ np.linalg.solve(A_tilde, C_tilde.T)
 
 
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
@@ -284,7 +288,10 @@ def tabulate_tensor_a10(A_, w_, c_, coords_, entity_local_index, permutation=ffi
     A_local = numba.carray(A_, (num_cell_facets * Vbar_ele_space_dim,
                                 num_cell_facets * Qbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
-    A_local += 3 * np.ones_like(A_local)
+    coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
+    A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+
+    A_local -= C_tilde @ np.linalg.solve(A_tilde, B_tilde.T)
 
 
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
@@ -292,7 +299,10 @@ def tabulate_tensor_a11(A_, w_, c_, coords_, entity_local_index, permutation=ffi
     A_local = numba.carray(A_, (num_cell_facets * Qbar_ele_space_dim,
                                 num_cell_facets * Qbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
-    A_local += 4 * np.ones_like(A_local)
+    coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
+    A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+
+    A_local -= C_tilde @ np.linalg.solve(A_tilde, C_tilde.T)
 
 
 np.set_printoptions(suppress=True, linewidth=200, precision=3)
