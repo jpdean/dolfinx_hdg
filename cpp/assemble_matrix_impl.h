@@ -245,6 +245,8 @@ namespace dolfinx_hdg::fem::impl
         if (cells.empty())
             return;
 
+        std::cout << "bs0 = " << bs0 << " bs1 = " << bs1 << "\n";
+
         // Prepare cell geometry
         const dolfinx::mesh::Geometry &geometry = mesh.geometry();
         const graph::AdjacencyList<std::int32_t> &x_dofmap = geometry.dofmap();
@@ -261,8 +263,8 @@ namespace dolfinx_hdg::fem::impl
                                              mesh.topology().dim() - 1);
         std::vector<T> Ae(ndim0 * num_cell_facets * ndim1 * num_cell_facets);
         const std::span<T> _Ae(Ae);
-        std::vector<std::int32_t> dofs0(ndim0 * num_cell_facets);
-        std::vector<std::int32_t> dofs1(ndim1 * num_cell_facets);
+        std::vector<std::int32_t> dofs0(num_dofs0 * num_cell_facets);
+        std::vector<std::int32_t> dofs1(num_dofs1 * num_cell_facets);
         std::vector<dolfinx::fem::impl::scalar_value_type_t<T>> coordinate_dofs(3 * num_dofs_g);
 
         // Iterate over active cells
@@ -289,6 +291,12 @@ namespace dolfinx_hdg::fem::impl
             kernel(Ae.data(), coeffs.data() + index * cstride, constants.data(),
                    coordinate_dofs.data(), nullptr, nullptr);
 
+            // for (auto val : Ae)
+            // {
+            //     std::cout << val << " ";
+            // }
+            // std::cout << "\n";
+
             //     dof_transform(_Ae, cell_info_1, c_1, ndim1);
             //     dof_transform_to_transpose(_Ae, cell_info_0, c_0, ndim0);
 
@@ -300,8 +308,8 @@ namespace dolfinx_hdg::fem::impl
                 auto dofs0_f = dofmap0.links(facet_0);
                 auto dofs1_f = dofmap1.links(facet_1);
 
-                std::copy_n(dofs0_f.begin(), dofs0_f.size(), dofs0.begin() + ndim0 * local_facet);
-                std::copy_n(dofs1_f.begin(), dofs1_f.size(), dofs1.begin() + ndim1 * local_facet);
+                std::copy_n(dofs0_f.begin(), dofs0_f.size(), dofs0.begin() + num_dofs0 * local_facet);
+                std::copy_n(dofs1_f.begin(), dofs1_f.size(), dofs1.begin() + num_dofs1 * local_facet);
             }
 
             // Zero rows/columns for essential bcs

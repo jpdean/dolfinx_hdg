@@ -159,40 +159,56 @@ c_signature = numba.types.void(
 
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
 def tabulate_tensor_a00(A_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
-    pass
-
-
-@numba.cfunc(c_signature, nopython=True, fastmath=True)
-def tabulate_tensor_a10(A_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
-    pass
+    A_local = numba.carray(A_, (num_cell_facets * Vbar_ele_space_dim,
+                                num_cell_facets * Vbar_ele_space_dim),
+                           dtype=PETSc.ScalarType)
+    A_local += np.ones_like(A_local)
 
 
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
 def tabulate_tensor_a01(A_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
-    pass
+    A_local = numba.carray(A_, (num_cell_facets * Qbar_ele_space_dim,
+                                num_cell_facets * Vbar_ele_space_dim),
+                           dtype=PETSc.ScalarType)
+    A_local += 2 * np.ones_like(A_local)
+
+
+@numba.cfunc(c_signature, nopython=True, fastmath=True)
+def tabulate_tensor_a10(A_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
+    A_local = numba.carray(A_, (num_cell_facets * Vbar_ele_space_dim,
+                                num_cell_facets * Qbar_ele_space_dim),
+                           dtype=PETSc.ScalarType)
+    A_local += 3 * np.ones_like(A_local)
 
 
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
 def tabulate_tensor_a11(A_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
-    pass
+    A_local = numba.carray(A_, (num_cell_facets * Qbar_ele_space_dim,
+                                num_cell_facets * Qbar_ele_space_dim),
+                           dtype=PETSc.ScalarType)
+    A_local += 4 * np.ones_like(A_local)
 
 
-integrals_a00 = {fem.IntegralType.cell: {-1: (tabulate_tensor_a00.address, [])}}
+integrals_a00 = {
+    fem.IntegralType.cell: {-1: (tabulate_tensor_a00.address, [])}}
 a00 = Form_float64(
     [Vbar._cpp_object, Vbar._cpp_object], integrals_a00, [], [], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
-integrals_a01 = {fem.IntegralType.cell: {-1: (tabulate_tensor_a01.address, [])}}
+integrals_a01 = {
+    fem.IntegralType.cell: {-1: (tabulate_tensor_a01.address, [])}}
 a01 = Form_float64(
     [Vbar._cpp_object, Qbar._cpp_object], integrals_a01, [], [], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
-integrals_a10 = {fem.IntegralType.cell: {-1: (tabulate_tensor_a10.address, [])}}
+integrals_a10 = {
+    fem.IntegralType.cell: {-1: (tabulate_tensor_a10.address, [])}}
 a10 = Form_float64(
     [Qbar._cpp_object, Vbar._cpp_object], integrals_a10, [], [], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
-integrals_a11 = {fem.IntegralType.cell: {-1: (tabulate_tensor_a11.address, [])}}
+integrals_a11 = {
+    fem.IntegralType.cell: {-1: (tabulate_tensor_a11.address, [])}}
 a11 = Form_float64(
     [Qbar._cpp_object, Qbar._cpp_object], integrals_a11, [], [], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
