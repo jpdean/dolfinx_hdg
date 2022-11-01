@@ -11,6 +11,7 @@ import numba
 from petsc4py import PETSc
 from dolfinx.cpp.fem import Form_float64
 from dolfinx_hdg.assemble import assemble_matrix_block as assemble_matrix_block_hdg
+# from dolfinx_hdg.assemble import assemble_vector_block as assemble_vector_block_hdg
 
 
 def boundary(x):
@@ -274,8 +275,8 @@ def tabulate_tensor_a00(A_, w_, c_, coords_, entity_local_index, permutation=ffi
 
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
 def tabulate_tensor_a01(A_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
-    A_local = numba.carray(A_, (num_cell_facets * Qbar_ele_space_dim,
-                                num_cell_facets * Vbar_ele_space_dim),
+    A_local = numba.carray(A_, (num_cell_facets * Vbar_ele_space_dim,
+                                num_cell_facets * Qbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
     A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
@@ -285,8 +286,8 @@ def tabulate_tensor_a01(A_, w_, c_, coords_, entity_local_index, permutation=ffi
 
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
 def tabulate_tensor_a10(A_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
-    A_local = numba.carray(A_, (num_cell_facets * Vbar_ele_space_dim,
-                                num_cell_facets * Qbar_ele_space_dim),
+    A_local = numba.carray(A_, (num_cell_facets * Qbar_ele_space_dim,
+                                num_cell_facets * Vbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
     A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
@@ -303,6 +304,18 @@ def tabulate_tensor_a11(A_, w_, c_, coords_, entity_local_index, permutation=ffi
     A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
 
     A_local -= C_tilde @ np.linalg.solve(A_tilde, C_tilde.T)
+
+
+# @numba.cfunc(c_signature, nopython=True, fastmath=True)
+# def tabulate_tensor_L0(b_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
+#     b_local = numba.carray(b_, num_cell_facets * Vbar_ele_space_dim,
+#                            dtype=PETSc.ScalarType)
+
+
+# @numba.cfunc(c_signature, nopython=True, fastmath=True)
+# def tabulate_tensor_L1(b_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
+#     b_local = numba.carray(b_, num_cell_facets * Qbar_ele_space_dim,
+#                            dtype=PETSc.ScalarType)
 
 
 np.set_printoptions(suppress=True, linewidth=200, precision=3)
@@ -350,9 +363,18 @@ bc_p = fem.dirichletbc(PETSc.ScalarType(0.0), pressure_dof, Qbar)
 
 bcs = [bc_ubar, bc_p]
 
-# # TODO BCs
-
-# A = assemble_matrix_block_hdg(a)
 A = assemble_matrix_block_hdg(a, bcs=bcs)
 A.assemble()
 print(A.norm())
+
+# integrals_L0 = {
+#     fem.IntegralType.cell: {-1: (tabulate_tensor_L0.address, [])}}
+# L0 = Form_float64(
+#     [Vbar._cpp_object], integrals_L0, [], [], False, msh,
+#     entity_maps={facet_mesh: inv_entity_map})
+
+# integrals_L1 = {
+#     fem.IntegralType.cell: {-1: (tabulate_tensor_L1.address, [])}}
+# L1 = Form_float64(
+#     [Qbar._cpp_object], integrals_L1, [], [], False, msh,
+#     entity_maps={facet_mesh: inv_entity_map})
