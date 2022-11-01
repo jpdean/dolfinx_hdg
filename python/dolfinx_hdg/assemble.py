@@ -238,9 +238,9 @@ def _assemble_vector_block_form(L, a, bcs = [], x0 = None, scale = 1.0,
     """
     maps = [(form.function_spaces[0].dofmap.index_map,
              form.function_spaces[0].dofmap.index_map_bs) for form in L]
-    # b = dolfinx_hdg.cpp.create_vector_block(maps)
-    # with b.localForm() as b_local:
-    #     b_local.set(0.0)
+    b = dolfinx.cpp.fem.petsc.create_vector_block(maps)
+    with b.localForm() as b_local:
+        b_local.set(0.0)
     print("TODO Assemble block vec")
     # return _assemble_vector_block_vec(b, L, a, bcs, x0, scale, constants_L, coeffs_L,
     #                                   constants_a, coeffs_a)
