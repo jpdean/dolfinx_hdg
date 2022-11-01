@@ -3,6 +3,7 @@ import numpy as np
 from dolfinx import fem
 import ufl
 from mpi4py import MPI
+from petsc4py import PETSc
 
 
 def reorder_mesh(msh):
@@ -31,3 +32,12 @@ def reorder_mesh(msh):
 def norm_L2(comm, v):
     return np.sqrt(comm.allreduce(fem.assemble_scalar(
         fem.form(ufl.inner(v, v) * ufl.dx)), op=MPI.SUM))
+
+
+def domain_average(msh, v):
+    """Compute the average of a function over the domain"""
+    vol = msh.comm.allreduce(
+        fem.assemble_scalar(fem.form(
+            fem.Constant(msh, PETSc.ScalarType(1.0)) * ufl.dx)), op=MPI.SUM)
+    return 1 / vol * msh.comm.allreduce(
+        fem.assemble_scalar(fem.form(v * ufl.dx)), op=MPI.SUM)

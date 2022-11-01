@@ -1,6 +1,6 @@
 from dolfinx import mesh, fem, jit, io
 from mpi4py import MPI
-from utils import reorder_mesh
+from utils import reorder_mesh, norm_L2, domain_average
 from dolfinx.cpp.mesh import cell_num_entities
 import numpy as np
 from ufl import inner, grad, dot, div
@@ -439,3 +439,16 @@ with io.VTXWriter(msh.comm, "ubar.bp", ubar_h) as f:
     f.write(0.0)
 with io.VTXWriter(msh.comm, "pbar.bp", pbar_h) as f:
     f.write(0.0)
+
+xbar = ufl.SpatialCoordinate(facet_mesh)
+e_ubar = norm_L2(msh.comm, ubar_h - u_e(xbar))
+pbar_h_avg = domain_average(facet_mesh, pbar_h)
+pbar_e_avg = domain_average(facet_mesh, p_e(xbar))
+e_pbar = norm_L2(msh.comm, (pbar_h - pbar_h_avg) - (p_e(xbar) - pbar_e_avg))
+
+if rank == 0:
+    # print(f"e_u = {e_u}")
+    # print(f"e_div_u = {e_div_u}")
+    # print(f"e_p = {e_p}")
+    print(f"e_ubar = {e_ubar}")
+    print(f"e_pbar = {e_pbar}")
