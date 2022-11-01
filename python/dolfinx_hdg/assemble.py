@@ -221,6 +221,30 @@ def _assemble_matrix_block_mat(A: PETSc.Mat, a,
 
     return A
 
+@functools.singledispatch
+def assemble_vector_block(L, a, bcs = [], x0 = None, scale = 1.0,
+                          constants_L=None, coeffs_L=None,
+                          constants_a=None, coeffs_a=None):
+    return _assemble_vector_block_form(L, a, bcs, x0, scale, constants_L, coeffs_L, constants_a, coeffs_a)
+
+
+@assemble_vector_block.register(list)
+def _assemble_vector_block_form(L, a, bcs = [], x0 = None, scale = 1.0,
+                                constants_L=None, coeffs_L=None,
+                                constants_a=None, coeffs_a=None):
+    """Assemble linear forms into a monolithic vector. The vector is not
+    finalised, i.e. ghost values are not accumulated.
+
+    """
+    maps = [(form.function_spaces[0].dofmap.index_map,
+             form.function_spaces[0].dofmap.index_map_bs) for form in L]
+    # b = dolfinx_hdg.cpp.create_vector_block(maps)
+    # with b.localForm() as b_local:
+    #     b_local.set(0.0)
+    print("TODO Assemble block vec")
+    # return _assemble_vector_block_vec(b, L, a, bcs, x0, scale, constants_L, coeffs_L,
+    #                                   constants_a, coeffs_a)
+
 # @assemble_matrix.register(PETSc.Mat)
 # def _(A: PETSc.Mat,
 #       a,
