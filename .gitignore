@@ -6,3 +6,4 @@ python/build/
 *.xdmf
 *.egg-info
 *.pyc
+*.bp/
