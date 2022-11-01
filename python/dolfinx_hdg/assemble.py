@@ -5,7 +5,6 @@ import dolfinx.cpp
 import dolfinx_hdg.cpp
 from dolfinx.fem.forms import FormMetaClass
 import collections
-from dolfinx_hdg.cpp import pack_coefficients as _pack_coefficients
 
 
 # @functools.singledispatch
@@ -67,7 +66,7 @@ def pack_coefficients(form):
         elif isinstance(form, collections.abc.Iterable):
             return list(map(lambda sub_form: _pack(sub_form), form))
         else:
-            return _pack_coefficients(form)
+            return dolfinx_hdg.cpp.pack_coefficients(form)
 
     return _pack(form)
 
@@ -188,19 +187,23 @@ def _assemble_matrix_block_mat(A: PETSc.Mat, a,
         0, 0), dtype=np.float64)} for form in forms] for forms in a] if coeffs is None else coeffs
 
     V = dolfinx.fem.petsc._extract_function_spaces(a)
-    is_rows = dolfinx.cpp.la.petsc.create_index_sets([(Vsub.dofmap.index_map, Vsub.dofmap.index_map_bs) for Vsub in V[0]])
-    is_cols = dolfinx.cpp.la.petsc.create_index_sets([(Vsub.dofmap.index_map, Vsub.dofmap.index_map_bs) for Vsub in V[1]])
+    is_rows = dolfinx.cpp.la.petsc.create_index_sets(
+        [(Vsub.dofmap.index_map, Vsub.dofmap.index_map_bs) for Vsub in V[0]])
+    is_cols = dolfinx.cpp.la.petsc.create_index_sets(
+        [(Vsub.dofmap.index_map, Vsub.dofmap.index_map_bs) for Vsub in V[1]])
 
     # Assemble form
     for i, a_row in enumerate(a):
         for j, a_sub in enumerate(a_row):
             if a_sub is not None:
                 Asub = A.getLocalSubMatrix(is_rows[i], is_cols[j])
-                dolfinx_hdg.cpp.assemble_matrix(Asub, a_sub, constants[i][j], coeffs[i][j], bcs, True)
+                dolfinx_hdg.cpp.assemble_matrix(
+                    Asub, a_sub, constants[i][j], coeffs[i][j], bcs, True)
                 A.restoreLocalSubMatrix(is_rows[i], is_cols[j], Asub)
             elif i == j:
                 for bc in bcs:
-                    row_forms = [row_form for row_form in a_row if row_form is not None]
+                    row_forms = [
+                        row_form for row_form in a_row if row_form is not None]
                     assert len(row_forms) > 0
                     if row_forms[0].function_spaces[0].contains(bc.function_space):
                         raise RuntimeError(
@@ -216,20 +219,22 @@ def _assemble_matrix_block_mat(A: PETSc.Mat, a,
             if a_sub is not None:
                 Asub = A.getLocalSubMatrix(is_rows[i], is_cols[j])
                 if a_sub.function_spaces[0] is a_sub.function_spaces[1]:
-                    dolfinx.cpp.fem.petsc.insert_diagonal(Asub, a_sub.function_spaces[0], bcs, diagonal)
+                    dolfinx.cpp.fem.petsc.insert_diagonal(
+                        Asub, a_sub.function_spaces[0], bcs, diagonal)
                 A.restoreLocalSubMatrix(is_rows[i], is_cols[j], Asub)
 
     return A
 
+
 @functools.singledispatch
-def assemble_vector_block(L, a, bcs = [], x0 = None, scale = 1.0,
+def assemble_vector_block(L, a, bcs=[], x0=None, scale=1.0,
                           constants_L=None, coeffs_L=None,
                           constants_a=None, coeffs_a=None):
     return _assemble_vector_block_form(L, a, bcs, x0, scale, constants_L, coeffs_L, constants_a, coeffs_a)
 
 
 @assemble_vector_block.register(list)
-def _assemble_vector_block_form(L, a, bcs = [], x0 = None, scale = 1.0,
+def _assemble_vector_block_form(L, a, bcs=[], x0=None, scale=1.0,
                                 constants_L=None, coeffs_L=None,
                                 constants_a=None, coeffs_a=None):
     """Assemble linear forms into a monolithic vector. The vector is not
@@ -241,9 +246,62 @@ def _assemble_vector_block_form(L, a, bcs = [], x0 = None, scale = 1.0,
     b = dolfinx.cpp.fem.petsc.create_vector_block(maps)
     with b.localForm() as b_local:
         b_local.set(0.0)
-    print("TODO Assemble block vec")
-    # return _assemble_vector_block_vec(b, L, a, bcs, x0, scale, constants_L, coeffs_L,
-    #                                   constants_a, coeffs_a)
+    return _assemble_vector_block_vec(b, L, a, bcs, x0, scale, constants_L, coeffs_L,
+                                      constants_a, coeffs_a)
+
+
+@assemble_vector_block.register
+def _assemble_vector_block_vec(b: PETSc.Vec, L, a, bcs=[], x0=None,
+                               scale=1.0,
+                               constants_L=None, coeffs_L=None,
+                               constants_a=None, coeffs_a=None):
+    """Assemble linear forms into a monolithic vector. The vector is not
+    zeroed and it is not finalised, i.e. ghost values are not
+    accumulated.
+
+    """
+    maps = [(form.function_spaces[0].dofmap.index_map,
+             form.function_spaces[0].dofmap.index_map_bs) for form in L]
+    if x0 is not None:
+        x0_local = dolfinx.cpp.la.petsc.get_local_vectors(x0, maps)
+        x0_sub = x0_local
+    else:
+        x0_local = []
+        x0_sub = [None] * len(maps)
+
+    # TODO Pack constants and coeffs properly
+    import numpy as np
+    constants_L = [form and []
+                   for form in L] if constants_L is None else constants_L
+    coeffs_L = [{} if form is None else {(dolfinx.fem.IntegralType.cell, -1): np.zeros(shape=(
+        0, 0), dtype=np.float64)} for form in L] if coeffs_L is None else coeffs_L
+    constants_a = [[form and [] for form in forms]
+                   for forms in a] if constants_a is None else constants_a
+    coeffs_a = [[{} if form is None else {(dolfinx.fem.IntegralType.cell, -1): np.zeros(shape=(
+        0, 0), dtype=np.float64)} for form in forms] for forms in a] if coeffs_a is None else coeffs_a
+
+    bcs1 = dolfinx.fem.bcs_by_block(dolfinx.fem.forms.extract_function_spaces(a, 1), bcs)
+    b_local = dolfinx.cpp.la.petsc.get_local_vectors(b, maps)
+    for b_sub, L_sub, a_sub, const_L, coeff_L, const_a, coeff_a in zip(b_local, L, a,
+                                                                       constants_L, coeffs_L,
+                                                                       constants_a, coeffs_a):
+        dolfinx_hdg.cpp.assemble_vector(b_sub, L_sub, const_L, coeff_L)
+        print("TODO: Apply lifting")
+        # _cpp.fem.apply_lifting(b_sub, a_sub, const_a,
+        #                        coeff_a, bcs1, x0_local, scale)
+
+    dolfinx.cpp.la.petsc.scatter_local_vectors(b, b_local, maps)
+    b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+
+    bcs0 = dolfinx.fem.bcs_by_block(dolfinx.fem.forms.extract_function_spaces(L), bcs)
+    offset = 0
+    b_array = b.getArray(readonly=False)
+    for submap, bc, _x0 in zip(maps, bcs0, x0_sub):
+        size = submap[0].size_local * submap[1]
+        dolfinx.cpp.fem.set_bc(b_array[offset: offset + size], bc, _x0, scale)
+        offset += size
+
+    return b
 
 # @assemble_matrix.register(PETSc.Mat)
 # def _(A: PETSc.Mat,
