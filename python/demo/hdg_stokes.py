@@ -518,10 +518,13 @@ with io.VTXWriter(msh.comm, "p.bp", p_h) as f:
 x = ufl.SpatialCoordinate(msh)
 e_u = norm_L2(msh.comm, u_h - u_e(x))
 e_div_u = norm_L2(msh.comm, div(u_h))
+p_h_avg = domain_average(msh, p_h)
+p_e_avg = domain_average(msh, p_e(x))
+e_p = norm_L2(msh.comm, (p_h - p_h_avg) - (p_e(x) - p_e_avg))
 
 if rank == 0:
     print(f"e_u = {e_u}")
     print(f"e_div_u = {e_div_u}")
-    # print(f"e_p = {e_p}")
+    print(f"e_p = {e_p}")
     print(f"e_ubar = {e_ubar}")
     print(f"e_pbar = {e_pbar}")
