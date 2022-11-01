@@ -191,6 +191,7 @@ def compute_mats(coords):
         entity_local_index[0] = local_f
         A_20_f.fill(0.0)
         A_30_f.fill(0.0)
+        A22_f.fill(0.0)
 
         kernel_00_facet(ffi.from_buffer(A_00),
                         ffi.from_buffer(null64),
