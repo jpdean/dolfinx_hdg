@@ -310,12 +310,45 @@ def tabulate_tensor_a11(A_, w_, c_, coords_, entity_local_index, permutation=ffi
 def tabulate_tensor_L0(b_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     b_local = numba.carray(b_, num_cell_facets * Vbar_ele_space_dim,
                            dtype=PETSc.ScalarType)
+    coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
+    b_0 = np.zeros(V_ele_space_dim, dtype=PETSc.ScalarType)
+    kernel_0(ffi.from_buffer(b_0),
+             ffi.from_buffer(null64),
+             ffi.from_buffer(null64),
+             ffi.from_buffer(coords),
+             ffi.from_buffer(null32),
+             ffi.from_buffer(null8))
+
+    L_tilde = np.zeros(V_ele_space_dim + Q_ele_space_dim,
+                       dtype=PETSc.ScalarType)
+    L_tilde[:V_ele_space_dim] = b_0[:]
+
+    A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+    b_local -= B_tilde @ np.linalg.solve(A_tilde, L_tilde)
 
 
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
 def tabulate_tensor_L1(b_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     b_local = numba.carray(b_, num_cell_facets * Qbar_ele_space_dim,
                            dtype=PETSc.ScalarType)
+    coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
+
+    # FIXME This is duplicated in tabulate_tensor_L0
+    b_0 = np.zeros(V_ele_space_dim, dtype=PETSc.ScalarType)
+    kernel_0(ffi.from_buffer(b_0),
+             ffi.from_buffer(null64),
+             ffi.from_buffer(null64),
+             ffi.from_buffer(coords),
+             ffi.from_buffer(null32),
+             ffi.from_buffer(null8))
+
+    L_tilde = np.zeros(V_ele_space_dim + Q_ele_space_dim,
+                       dtype=PETSc.ScalarType)
+    L_tilde[:V_ele_space_dim] = b_0[:]
+
+    A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+
+    b_local -= C_tilde @ np.linalg.solve(A_tilde, L_tilde)
 
 
 np.set_printoptions(suppress=True, linewidth=200, precision=3)
@@ -382,4 +415,5 @@ L1 = Form_float64(
 L = [L0, L1]
 
 # TODO BCs
-b = assemble_vector_block_hdg(L, a)
+b = assemble_vector_block_hdg(L, a, bcs=bcs)
+print(b[:])
