@@ -13,7 +13,6 @@ option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 find_package(DOLFINX REQUIRED)
 
 add_library(${PROJECT_NAME}
-        hello.h hello.cpp
         petsc.h petsc.cpp
         utils.h
         assembler.h
@@ -34,7 +33,6 @@ install(TARGETS ${PROJECT_NAME}
         DESTINATION lib
         EXPORT dolfinx_hdg_targets)
 install(FILES
-        hello.h
         petsc.h
         utils.h
         assembler.h
