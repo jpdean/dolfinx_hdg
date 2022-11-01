@@ -21,7 +21,6 @@ Mat dolfinx_hdg::fem::create_matrix_block(
     const std::vector<std::vector<const dolfinx::fem::Form<PetscScalar> *>> &a,
     const std::string &type)
 {
-    std::cout << "dolfinx_hdg::fem::create_matrix_block\n";
     // Extract and check row/column ranges
     std::array<std::vector<std::shared_ptr<const dolfinx::fem::FunctionSpace>>, 2> V =
         dolfinx::fem::common_function_spaces(extract_function_spaces(a));

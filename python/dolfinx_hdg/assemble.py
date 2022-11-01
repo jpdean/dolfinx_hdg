@@ -173,8 +173,6 @@ def _assemble_matrix_block_mat(A: PETSc.Mat, a,
                                constants=None, coeffs=None):
     """Assemble bilinear forms into matrix"""
 
-    print("_assemble_matrix_block_mat")
-
     # TODO Pack constants and coeffs
     # constants = [[form and _pack_constants(form) for form in forms]
     #              for forms in a] if constants is None else constants
