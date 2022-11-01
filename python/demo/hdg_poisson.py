@@ -16,14 +16,10 @@ from dolfinx.common import Timer, list_timings, TimingType
 from dolfinx_hdg.assemble import assemble_matrix as assemble_matrix_hdg
 from dolfinx_hdg.assemble import assemble_vector as assemble_vector_hdg
 from dolfinx_hdg.assemble import pack_coefficients
-from utils import reorder_mesh
+from utils import reorder_mesh, norm_L2
 
 
 def main():
-    def norm_L2(comm, v):
-        return np.sqrt(comm.allreduce(fem.assemble_scalar(
-            fem.form(ufl.inner(v, v) * ufl.dx)), op=MPI.SUM))
-
     def boundary(x):
         lr = np.isclose(x[0], 0.0) | np.isclose(x[0], 1.0)
         tb = np.isclose(x[1], 0.0) | np.isclose(x[1], 1.0)
