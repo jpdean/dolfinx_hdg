@@ -476,6 +476,8 @@ pbar_h.name = "pbar"
 offset = Vbar.dofmap.index_map.size_local * Vbar.dofmap.index_map_bs
 ubar_h.x.array[:offset] = x.array_r[:offset]
 pbar_h.x.array[:(len(x.array_r) - offset)] = x.array_r[offset:]
+ubar_h.x.scatter_forward()
+pbar_h.x.scatter_forward()
 
 with io.VTXWriter(msh.comm, "ubar.bp", ubar_h) as f:
     f.write(0.0)
