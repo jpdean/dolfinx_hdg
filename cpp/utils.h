@@ -204,10 +204,11 @@ namespace dolfinx_hdg::fem
                 auto fetch_cell = form.function_space_to_entity_map(
                     *coefficients[coeff]->function_space());
                 // Get cell info for coefficient (with respect to coefficient mesh)
+                // NOTE For cell coeffs, need more complicated way of dealing with offset
                 std::span<const std::uint32_t> cell_info = dolfinx::fem::impl::get_cell_orientation_info(*coefficients[coeff]);
                 dolfinx_hdg::fem::pack_coefficient_entity(c, cstride, *coefficients[coeff],
                                                           cell_info, cells, num_cell_facets, fetch_cell,
-                                                          offsets[coeff]);
+                                                          num_cell_facets * offsets[coeff]);
             }
         }
     }
