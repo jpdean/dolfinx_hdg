@@ -416,4 +416,14 @@ L = [L0, L1]
 
 # TODO BCs
 b = assemble_vector_block_hdg(L, a, bcs=bcs)
-print(b[:])
+
+ksp = PETSc.KSP().create(msh.comm)
+ksp.setOperators(A)
+ksp.setType("preonly")
+ksp.getPC().setType("lu")
+ksp.getPC().setFactorSolverType("superlu_dist")
+
+x = A.createVecRight()
+ksp.solve(b, x)
+
+print(x.norm())
