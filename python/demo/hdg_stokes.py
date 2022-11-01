@@ -376,7 +376,22 @@ def backsub_u(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
 
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
 def backsub_p(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
-    pass
+    x = numba.carray(x_, Q_ele_space_dim, dtype=PETSc.ScalarType)
+    coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
+    w = numba.carray(w_, num_cell_facets * (Vbar_ele_space_dim + Qbar_ele_space_dim),
+                     dtype=PETSc.ScalarType)
+    u_bar = w[:num_cell_facets * Vbar_ele_space_dim]
+    p_bar = w[num_cell_facets * Vbar_ele_space_dim:]
+
+    # FIXME This approach is more expensive then needed. It computes both
+    # u and p and then only stores p. Would be better to write backsub
+    # expression directly for p.
+    A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+    L_tilde = compute_L_tilde(coords)
+
+    U = np.linalg.solve(A_tilde, L_tilde - B_tilde.T @
+                        u_bar - C_tilde.T @ p_bar)
+    x += U[V_ele_space_dim:]
 
 
 np.set_printoptions(suppress=True, linewidth=200, precision=3)
@@ -477,14 +492,27 @@ integrals_backsub_u = {fem.IntegralType.cell: {-1: (backsub_u.address, [])}}
 u_form = Form_float64([V._cpp_object], integrals_backsub_u,
                       [ubar_h._cpp_object, pbar_h._cpp_object], [], False, None,
                       entity_maps={facet_mesh: inv_entity_map})
-coeffs = pack_coefficients(u_form)
+coeffs_u = pack_coefficients(u_form)
 
 u_h = fem.Function(V)
-fem.assemble_vector(u_h.x.array, u_form, coeffs=coeffs)
+fem.assemble_vector(u_h.x.array, u_form, coeffs=coeffs_u)
 u_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
                        mode=PETSc.ScatterMode.REVERSE)
 
+integrals_backsub_p = {fem.IntegralType.cell: {-1: (backsub_p.address, [])}}
+p_form = Form_float64([Q._cpp_object], integrals_backsub_p,
+                      [ubar_h._cpp_object, pbar_h._cpp_object], [], False, None,
+                      entity_maps={facet_mesh: inv_entity_map})
+coeffs_p = pack_coefficients(p_form)
+
+p_h = fem.Function(Q)
+fem.assemble_vector(p_h.x.array, p_form, coeffs=coeffs_p)
+p_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
+                       mode=PETSc.ScatterMode.REVERSE)
+
 with io.VTXWriter(msh.comm, "u.bp", u_h) as f:
+    f.write(0.0)
+with io.VTXWriter(msh.comm, "p.bp", p_h) as f:
     f.write(0.0)
 
 x = ufl.SpatialCoordinate(msh)
