@@ -12,6 +12,7 @@ from petsc4py import PETSc
 from dolfinx.cpp.fem import Form_float64
 from dolfinx_hdg.assemble import assemble_matrix_block as assemble_matrix_block_hdg
 from dolfinx_hdg.assemble import assemble_vector_block as assemble_vector_block_hdg
+from dolfinx_hdg.assemble import pack_coefficients
 
 
 def boundary(x):
@@ -254,6 +255,23 @@ def compute_mats(coords):
     return A_tilde, B_tilde, C_tilde, A_22
 
 
+@numba.njit(fastmath=True)
+def compute_L_tilde(coords):
+    b_0 = np.zeros(V_ele_space_dim, dtype=PETSc.ScalarType)
+    kernel_0(ffi.from_buffer(b_0),
+             ffi.from_buffer(null64),
+             ffi.from_buffer(null64),
+             ffi.from_buffer(coords),
+             ffi.from_buffer(null32),
+             ffi.from_buffer(null8))
+
+    L_tilde = np.zeros(V_ele_space_dim + Q_ele_space_dim,
+                       dtype=PETSc.ScalarType)
+    L_tilde[:V_ele_space_dim] = b_0[:]
+
+    return L_tilde
+
+
 c_signature = numba.types.void(
     numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
     numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
@@ -312,19 +330,10 @@ def tabulate_tensor_L0(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
     b_local = numba.carray(b_, num_cell_facets * Vbar_ele_space_dim,
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    b_0 = np.zeros(V_ele_space_dim, dtype=PETSc.ScalarType)
-    kernel_0(ffi.from_buffer(b_0),
-             ffi.from_buffer(null64),
-             ffi.from_buffer(null64),
-             ffi.from_buffer(coords),
-             ffi.from_buffer(null32),
-             ffi.from_buffer(null8))
-
-    L_tilde = np.zeros(V_ele_space_dim + Q_ele_space_dim,
-                       dtype=PETSc.ScalarType)
-    L_tilde[:V_ele_space_dim] = b_0[:]
 
     A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+    L_tilde = compute_L_tilde(coords)
+
     b_local -= B_tilde @ np.linalg.solve(A_tilde, L_tilde)
 
 
@@ -334,22 +343,40 @@ def tabulate_tensor_L1(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
 
-    # FIXME This is duplicated in tabulate_tensor_L0
-    b_0 = np.zeros(V_ele_space_dim, dtype=PETSc.ScalarType)
-    kernel_0(ffi.from_buffer(b_0),
-             ffi.from_buffer(null64),
-             ffi.from_buffer(null64),
-             ffi.from_buffer(coords),
-             ffi.from_buffer(null32),
-             ffi.from_buffer(null8))
-
-    L_tilde = np.zeros(V_ele_space_dim + Q_ele_space_dim,
-                       dtype=PETSc.ScalarType)
-    L_tilde[:V_ele_space_dim] = b_0[:]
-
     A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+    L_tilde = compute_L_tilde(coords)
 
     b_local -= C_tilde @ np.linalg.solve(A_tilde, L_tilde)
+
+
+@numba.njit(fastmath=True)
+def numba_print(thing):
+    print(thing)
+
+
+@numba.cfunc(c_signature, nopython=True, fastmath=True)
+def backsub_u(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
+    x = numba.carray(x_, V_ele_space_dim, dtype=PETSc.ScalarType)
+    coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
+    w = numba.carray(w_, num_cell_facets * (Vbar_ele_space_dim + Qbar_ele_space_dim),
+                     dtype=PETSc.ScalarType)
+    u_bar = w[:num_cell_facets * Vbar_ele_space_dim]
+    p_bar = w[num_cell_facets * Vbar_ele_space_dim:]
+
+    # FIXME This approach is more expensive then needed. It computes both
+    # u and p and then only stores u. Would be better to write backsub
+    # expression directly for u.
+    A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+    L_tilde = compute_L_tilde(coords)
+
+    U = np.linalg.solve(A_tilde, L_tilde - B_tilde.T @
+                        u_bar - C_tilde.T @ p_bar)
+    x += U[:V_ele_space_dim]
+
+
+@numba.cfunc(c_signature, nopython=True, fastmath=True)
+def backsub_p(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
+    pass
 
 
 np.set_printoptions(suppress=True, linewidth=200, precision=3)
@@ -446,9 +473,27 @@ pbar_h_avg = domain_average(facet_mesh, pbar_h)
 pbar_e_avg = domain_average(facet_mesh, p_e(xbar))
 e_pbar = norm_L2(msh.comm, (pbar_h - pbar_h_avg) - (p_e(xbar) - pbar_e_avg))
 
+integrals_backsub_u = {fem.IntegralType.cell: {-1: (backsub_u.address, [])}}
+u_form = Form_float64([V._cpp_object], integrals_backsub_u,
+                      [ubar_h._cpp_object, pbar_h._cpp_object], [], False, None,
+                      entity_maps={facet_mesh: inv_entity_map})
+coeffs = pack_coefficients(u_form)
+
+u_h = fem.Function(V)
+fem.assemble_vector(u_h.x.array, u_form, coeffs=coeffs)
+u_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
+                       mode=PETSc.ScatterMode.REVERSE)
+
+with io.VTXWriter(msh.comm, "u.bp", u_h) as f:
+    f.write(0.0)
+
+x = ufl.SpatialCoordinate(msh)
+e_u = norm_L2(msh.comm, u_h - u_e(x))
+e_div_u = norm_L2(msh.comm, div(u_h))
+
 if rank == 0:
-    # print(f"e_u = {e_u}")
-    # print(f"e_div_u = {e_div_u}")
+    print(f"e_u = {e_u}")
+    print(f"e_div_u = {e_div_u}")
     # print(f"e_p = {e_p}")
     print(f"e_ubar = {e_ubar}")
     print(f"e_pbar = {e_pbar}")
