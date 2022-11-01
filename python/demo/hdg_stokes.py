@@ -30,7 +30,7 @@ comm = MPI.COMM_WORLD
 rank = comm.rank
 out_str = f"rank {rank}:\n"
 
-n = 2
+n = 8
 msh = mesh.create_unit_square(
     comm, n, n, ghost_mode=mesh.GhostMode.none)
 
@@ -414,7 +414,6 @@ L1 = Form_float64(
 
 L = [L0, L1]
 
-# TODO BCs
 b = assemble_vector_block_hdg(L, a, bcs=bcs)
 
 ksp = PETSc.KSP().create(msh.comm)
@@ -426,4 +425,16 @@ ksp.getPC().setFactorSolverType("superlu_dist")
 x = A.createVecRight()
 ksp.solve(b, x)
 
-print(x.norm())
+ubar_h = fem.Function(Vbar)
+ubar_h.name = "ubar"
+pbar_h = fem.Function(Qbar)
+pbar_h.name = "pbar"
+
+offset = Vbar.dofmap.index_map.size_local * Vbar.dofmap.index_map_bs
+ubar_h.x.array[:offset] = x.array_r[:offset]
+pbar_h.x.array[:(len(x.array_r) - offset)] = x.array_r[offset:]
+
+with io.VTXWriter(msh.comm, "ubar.bp", ubar_h) as f:
+    f.write(0.0)
+with io.VTXWriter(msh.comm, "pbar.bp", pbar_h) as f:
+    f.write(0.0)
