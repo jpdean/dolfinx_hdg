@@ -478,15 +478,16 @@ pressure_dof = fem.locate_dofs_geometrical(
 if len(pressure_dof) > 0:
     pressure_dof = np.array([pressure_dof[0]], dtype=np.int32)
 
-bc_p = fem.dirichletbc(PETSc.ScalarType(0.0), pressure_dof, Qbar)
+bc_p_bar = fem.dirichletbc(PETSc.ScalarType(0.0), pressure_dof, Qbar)
 
-bcs = [bc_ubar, bc_p]
+bcs = [bc_ubar]
+
+use_direct_solver = False
+if use_direct_solver:
+    bcs.append(bc_p_bar)
 
 A = assemble_matrix_block_hdg(a, bcs=bcs)
 A.assemble()
-
-P = assemble_matrix_block_hdg(p, bcs=bcs)
-P.assemble()
 
 integrals_L0 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_L0.address, [])}}
@@ -504,7 +505,6 @@ L = [L0, L1]
 
 b = assemble_vector_block_hdg(L, a, bcs=bcs)
 
-use_direct_solver = False
 
 if use_direct_solver:
     ksp = PETSc.KSP().create(msh.comm)
@@ -513,7 +513,10 @@ if use_direct_solver:
     ksp.getPC().setType("lu")
     ksp.getPC().setFactorSolverType("superlu_dist")
 else:
-    # TODO Remove pressure BC and set nullspace
+    # TODO Set nullspace
+    P = assemble_matrix_block_hdg(p, bcs=bcs)
+    P.assemble()
+
     # FIXME Only assemble preconditioner here
     offset_ubar = Vbar.dofmap.index_map.local_range[0] * Vbar.dofmap.index_map_bs + \
         Qbar.dofmap.index_map.local_range[0]
@@ -526,22 +529,23 @@ else:
     ksp.setTolerances(rtol=1e-8)
     ksp.setType("minres")
     ksp.getPC().setType("fieldsplit")
-    ksp.getPC().setFieldSplitType(PETSc.PC.CompositeType.ADDITIVE)
     ksp.getPC().setFieldSplitIS(
         ("u", is_ubar),
         ("p", is_pbar))
 
     # Configure velocity and pressure sub KSPs
     ksp_u, ksp_p = ksp.getPC().getFieldSplitSubKSP()
-    ksp_u.setType("preonly")
+    ksp_u.setType("gmres")
+    ksp_u.setTolerances(rtol=1e-9)
     ksp_u.getPC().setType("gamg")
     ksp_p.setType("preonly")
-    ksp_p.getPC().setType("jacobi")
+    ksp_p.getPC().setType("ilu")
 
     # Monitor the convergence of the KSP
     opts = PETSc.Options()
     opts["ksp_monitor"] = None
     opts["ksp_view"] = None
+    opts["options_left"] = None
     ksp.setFromOptions()
 
 x = A.createVecRight()
