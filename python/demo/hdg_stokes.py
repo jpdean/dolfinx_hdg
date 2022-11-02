@@ -105,6 +105,8 @@ a_20 = inner(vbar, dot(grad(u), n)) * ds_c - gamma * inner(vbar, u) * ds_c
 a_30 = inner(dot(u, n), qbar) * ds_c
 a_22 = gamma * inner(ubar, vbar) * ds_c
 
+p_11 = h * inner(pbar, qbar) * ds_c
+
 L_0 = inner(f, v) * dx_c
 
 inv_entity_map = np.full_like(entity_map, -1)
@@ -137,6 +139,12 @@ ufcx_form_22, _, _ = jit.ffcx_jit(
     msh.comm, a_22, form_compiler_options={"scalar_type": ffcxtype})
 kernel_22 = getattr(ufcx_form_22.integrals(IntegralType.exterior_facet)[0],
                     f"tabulate_tensor_{nptype}")
+
+# Preconditioner form
+ufcx_form_p11, _, _ = jit.ffcx_jit(
+    msh.comm, p_11, form_compiler_options={"scalar_type": ffcxtype})
+kernel_p11 = getattr(ufcx_form_p11.integrals(IntegralType.exterior_facet)[0],
+                     f"tabulate_tensor_{nptype}")
 
 # RHS forms
 ufcx_form_0, _, _ = jit.ffcx_jit(
@@ -272,6 +280,11 @@ def compute_L_tilde(coords):
     return L_tilde
 
 
+@numba.njit(fastmath=True)
+def numba_print(thing):
+    print(thing)
+
+
 c_signature = numba.types.void(
     numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
     numba.types.CPointer(numba.typeof(PETSc.ScalarType())),
@@ -326,6 +339,32 @@ def tabulate_tensor_a11(A_, w_, c_, coords_, entity_local_index, permutation=ffi
 
 
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
+def tabulate_tensor_p11(P_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
+    P_local = numba.carray(P_, (num_cell_facets * Qbar_ele_space_dim,
+                                num_cell_facets * Qbar_ele_space_dim),
+                           dtype=PETSc.ScalarType)
+    coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
+    P_11_f = np.zeros((Qbar_ele_space_dim, Qbar_ele_space_dim),
+                       dtype=PETSc.ScalarType)
+
+    entity_local_index = np.zeros((1), dtype=np.int32)
+    for local_f in range(num_cell_facets):
+        entity_local_index[0] = local_f
+        P_11_f.fill(0.0)
+
+        kernel_p11(ffi.from_buffer(P_11_f),
+                  ffi.from_buffer(null64),
+                  ffi.from_buffer(null64),
+                  ffi.from_buffer(coords),
+                  ffi.from_buffer(entity_local_index),
+                  ffi.from_buffer(null8))
+
+        start = local_f * Qbar_ele_space_dim
+        end = start + Qbar_ele_space_dim
+        P_local[start:end, start:end] += P_11_f[:, :]
+
+
+@numba.cfunc(c_signature, nopython=True, fastmath=True)
 def tabulate_tensor_L0(b_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     b_local = numba.carray(b_, num_cell_facets * Vbar_ele_space_dim,
                            dtype=PETSc.ScalarType)
@@ -347,11 +386,6 @@ def tabulate_tensor_L1(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
     L_tilde = compute_L_tilde(coords)
 
     b_local -= C_tilde @ np.linalg.solve(A_tilde, L_tilde)
-
-
-@numba.njit(fastmath=True)
-def numba_print(thing):
-    print(thing)
 
 
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
@@ -423,6 +457,15 @@ a11 = Form_float64(
 a = [[a00, a01],
      [a10, a11]]
 
+integrals_p11 = {
+    fem.IntegralType.cell: {-1: (tabulate_tensor_p11.address, [])}}
+p11 = Form_float64(
+    [Qbar._cpp_object, Qbar._cpp_object], integrals_p11, [], [], False, msh,
+    entity_maps={facet_mesh: inv_entity_map})
+
+p = [[a00, None],
+     [None, p11]]
+
 msh_boundary_facets = mesh.locate_entities_boundary(msh, fdim, boundary)
 facet_mesh_boundary_facets = [inv_entity_map[facet]
                               for facet in msh_boundary_facets]
@@ -443,6 +486,10 @@ A = assemble_matrix_block_hdg(a, bcs=bcs)
 A.assemble()
 print(A.norm())
 
+P = assemble_matrix_block_hdg(p, bcs=bcs)
+P.assemble()
+print(f"P.norm() = {P.norm()}")
+
 integrals_L0 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_L0.address, [])}}
 L0 = Form_float64(
@@ -459,11 +506,45 @@ L = [L0, L1]
 
 b = assemble_vector_block_hdg(L, a, bcs=bcs)
 
-ksp = PETSc.KSP().create(msh.comm)
-ksp.setOperators(A)
-ksp.setType("preonly")
-ksp.getPC().setType("lu")
-ksp.getPC().setFactorSolverType("superlu_dist")
+use_direct_solver = False
+
+if use_direct_solver:
+    ksp = PETSc.KSP().create(msh.comm)
+    ksp.setOperators(A)
+    ksp.setType("preonly")
+    ksp.getPC().setType("lu")
+    ksp.getPC().setFactorSolverType("superlu_dist")
+else:
+    # TODO Remove pressure BC and set nullspace
+    # FIXME Only assemble preconditioner here
+    offset_ubar = Vbar.dofmap.index_map.local_range[0] * Vbar.dofmap.index_map_bs + \
+        Qbar.dofmap.index_map.local_range[0]
+    offset_pbar = offset_ubar + Vbar.dofmap.index_map.size_local * Vbar.dofmap.index_map_bs
+    is_ubar = PETSc.IS().createStride(Vbar.dofmap.index_map.size_local * Vbar.dofmap.index_map_bs, offset_ubar, 1, comm=PETSc.COMM_SELF)
+    is_pbar = PETSc.IS().createStride(Qbar.dofmap.index_map.size_local, offset_pbar, 1, comm=PETSc.COMM_SELF)
+
+    ksp = PETSc.KSP().create(msh.comm)
+    ksp.setOperators(A, P)
+    ksp.setTolerances(rtol=1e-8)
+    ksp.setType("minres")
+    ksp.getPC().setType("fieldsplit")
+    ksp.getPC().setFieldSplitType(PETSc.PC.CompositeType.ADDITIVE)
+    ksp.getPC().setFieldSplitIS(
+        ("u", is_ubar),
+        ("p", is_pbar))
+
+    # Configure velocity and pressure sub KSPs
+    ksp_u, ksp_p = ksp.getPC().getFieldSplitSubKSP()
+    ksp_u.setType("preonly")
+    ksp_u.getPC().setType("gamg")
+    ksp_p.setType("preonly")
+    ksp_p.getPC().setType("jacobi")
+
+    # Monitor the convergence of the KSP
+    opts = PETSc.Options()
+    opts["ksp_monitor"] = None
+    opts["ksp_view"] = None
+    ksp.setFromOptions()
 
 x = A.createVecRight()
 ksp.solve(b, x)
