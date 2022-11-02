@@ -484,11 +484,9 @@ bcs = [bc_ubar, bc_p]
 
 A = assemble_matrix_block_hdg(a, bcs=bcs)
 A.assemble()
-print(A.norm())
 
 P = assemble_matrix_block_hdg(p, bcs=bcs)
 P.assemble()
-print(f"P.norm() = {P.norm()}")
 
 integrals_L0 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_L0.address, [])}}
