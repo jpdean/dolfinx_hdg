@@ -539,7 +539,7 @@ else:
     ksp_u.setTolerances(rtol=1e-9)
     ksp_u.getPC().setType("gamg")
     ksp_p.setType("preonly")
-    ksp_p.getPC().setType("ilu")
+    ksp_p.getPC().setType("sor")
 
     # Monitor the convergence of the KSP
     opts = PETSc.Options()
