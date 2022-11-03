@@ -31,7 +31,7 @@ comm = MPI.COMM_WORLD
 rank = comm.rank
 out_str = f"rank {rank}:\n"
 
-n = 8
+n = 64
 msh = mesh.create_unit_square(
     comm, n, n, ghost_mode=mesh.GhostMode.none)
 
@@ -569,7 +569,7 @@ else:
     # Configure velocity and pressure sub KSPs
     ksp_u, ksp_p = ksp.getPC().getFieldSplitSubKSP()
     ksp_u.setType("preonly")
-    ksp_u.getPC().setType("gamg")
+    ksp_u.getPC().setType("hypre")
     ksp_p.setType("preonly")
     # TODO Use SOR
     ksp_p.getPC().setType("lu")
@@ -578,6 +578,10 @@ else:
     opts = PETSc.Options()
     opts["ksp_monitor"] = None
     opts["ksp_view"] = None
+    opts["fieldsplit_u_pc_hypre_type"] = "boomeramg"
+    opts["fieldsplit_u_pc_hypre_boomeramg_cycle_type"] = "V"
+    opts["fieldsplit_u_pc_hypre_boomeramg_grid_sweeps_all"] = 4
+    # opts["help"] = None
     opts["options_left"] = None
     ksp.setFromOptions()
 
