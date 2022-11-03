@@ -351,6 +351,11 @@ def tabulate_tensor_p00(P_, w_, c_, coords_, entity_local_index, permutation=ffi
     P_local = numba.carray(P_, (num_cell_facets * Vbar_ele_space_dim,
                                 num_cell_facets * Vbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
+    coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+
+    P_local += A_22 - A_20 @ np.linalg.solve(A_00, A_20.T)
+
 
 
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
@@ -508,7 +513,7 @@ bc_p_bar = fem.dirichletbc(PETSc.ScalarType(0.0), pressure_dof, Qbar)
 
 bcs = [bc_ubar]
 
-use_direct_solver = True
+use_direct_solver = False
 if use_direct_solver:
     bcs.append(bc_p_bar)
 
@@ -543,10 +548,6 @@ else:
     P = assemble_matrix_block_hdg(p, bcs=bcs)
     P.assemble()
 
-    print(P.norm())
-
-    assert False
-
     # FIXME Only assemble preconditioner here
     offset_ubar = Vbar.dofmap.index_map.local_range[0] * Vbar.dofmap.index_map_bs + \
         Qbar.dofmap.index_map.local_range[0]
@@ -567,11 +568,11 @@ else:
 
     # Configure velocity and pressure sub KSPs
     ksp_u, ksp_p = ksp.getPC().getFieldSplitSubKSP()
-    ksp_u.setType("gmres")
-    ksp_u.setTolerances(rtol=1e-9)
+    ksp_u.setType("preonly")
     ksp_u.getPC().setType("gamg")
     ksp_p.setType("preonly")
-    ksp_p.getPC().setType("sor")
+    # TODO Use SOR
+    ksp_p.getPC().setType("lu")
 
     # Monitor the convergence of the KSP
     opts = PETSc.Options()
