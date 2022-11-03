@@ -101,6 +101,45 @@ namespace dolfinx_hdg_wrappers
                 return c;
             },
             py::arg("form"), "Pack coefficients for a Form.");
+
+        m.def(
+            "apply_lifting",
+            [](py::array_t<T, py::array::c_style> b,
+               const std::vector<std::shared_ptr<const dolfinx::fem::Form<T>>> &a,
+               const std::vector<py::array_t<T, py::array::c_style>> &constants,
+               const std::vector<std::map<std::pair<dolfinx::fem::IntegralType, int>,
+                                          py::array_t<T, py::array::c_style>>> &
+                   coeffs,
+               const std::vector<std::vector<
+                   std::shared_ptr<const dolfinx::fem::DirichletBC<T>>>> &bcs1,
+               const std::vector<py::array_t<T, py::array::c_style>> &x0,
+               double scale)
+            {
+                std::vector<std::span<const T>> _x0;
+                for (const auto &x : x0)
+                    _x0.emplace_back(x.data(), x.size());
+
+                std::vector<std::span<const T>> _constants;
+                std::transform(constants.begin(), constants.end(),
+                               std::back_inserter(_constants),
+                               [](auto &c)
+                               { return std::span(c.data(), c.size()); });
+
+                std::vector<std::map<std::pair<dolfinx::fem::IntegralType, int>,
+                                     std::pair<std::span<const T>, int>>>
+                    _coeffs;
+                std::transform(coeffs.begin(), coeffs.end(),
+                               std::back_inserter(_coeffs),
+                               [](auto &c)
+                               { return py_to_cpp_coeffs(c); });
+
+                std::cout << "apply_lifting pybind\n";
+                // dolfinx::fem::apply_lifting<T>(std::span(b.mutable_data(), b.size()), a,
+                //                                _constants, _coeffs, bcs1, _x0, scale);
+            },
+            py::arg("b"), py::arg("a"), py::arg("constants"), py::arg("coeffs"),
+            py::arg("bcs1"), py::arg("x0"), py::arg("scale"),
+            "Modify vector for lifted boundary conditions");
     }
 }
 

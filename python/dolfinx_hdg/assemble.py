@@ -5,6 +5,52 @@ import dolfinx.cpp
 import dolfinx_hdg.cpp
 from dolfinx.fem.forms import FormMetaClass
 import collections
+import contextlib
+
+
+def apply_lifting(b, a, bcs, x0=[], scale=1.0, constants=None, coeffs=None):
+    """Apply the function :func:`dolfinx.fem.apply_lifting` to a PETSc Vector."""
+    with contextlib.ExitStack() as stack:
+        x0 = [stack.enter_context(x.localForm()) for x in x0]
+        x0_r = [x.array_r for x in x0]
+        b_local = stack.enter_context(b.localForm())
+        apply_lifting_array(b_local.array_w, a, bcs, x0_r,
+                            scale, constants, coeffs)
+
+
+def apply_lifting_array(b, a, bcs, x0=None, scale=1.0,
+                        constants=None, coeffs=None):
+    """Modify RHS vector b for lifting of Dirichlet boundary conditions.
+
+    It modifies b such that:
+
+    .. math::
+
+        b \\leftarrow  b - \\text{scale} * A_j (g_j - x0_j)
+
+    where j is a block (nest) index. For a non-blocked problem j = 0.
+    The boundary conditions bcs are on the trial spaces V_j. The forms
+    in [a] must have the same test space as L (from which b was built),
+    but the trial space may differ. If x0 is not supplied, then it is
+    treated as zero.
+
+    Note:
+        Ghost contributions are not accumulated (not sent to owner).
+        Caller is responsible for calling VecGhostUpdateBegin/End.
+
+    """
+    x0 = [] if x0 is None else x0
+    # TODO Pack constants and coefficients
+    # constants = [form and _pack_constants(
+    #     form) for form in a] if constants is None else constants
+    # coeffs = [{} if form is None else _pack_coefficients(
+    #     form) for form in a] if coeffs is None else coeffs
+
+    import numpy as np
+    constants = [form and [] for form in a] if constants is None else constants
+    coeffs = [{} if form is None else {(dolfinx.fem.IntegralType.cell, -1): np.zeros(
+        shape=(0, 0), dtype=np.float64)} for form in a] if coeffs is None else coeffs
+    dolfinx_hdg.cpp.apply_lifting(b, a, constants, coeffs, bcs, x0, scale)
 
 
 def pack_coefficients(form):
@@ -101,7 +147,8 @@ def _assemble_matrix_mat(A: PETSc.Mat, a, bcs=[],
     # coeffs = pack_coefficients(a) if coeffs is None else coeffs
     constants = []
     import numpy as np
-    coeffs = {(dolfinx.fem.IntegralType.cell, -1): np.zeros(shape=(0, 0), dtype=np.float64)}
+    coeffs = {(dolfinx.fem.IntegralType.cell, -1)
+               : np.zeros(shape=(0, 0), dtype=np.float64)}
 
     dolfinx_hdg.cpp.assemble_matrix(A, a, constants, coeffs, bcs)
     if a.function_spaces[0] is a.function_spaces[1]:
@@ -243,7 +290,8 @@ def _assemble_vector_block_vec(b: PETSc.Vec, L, a, bcs=[], x0=None,
     coeffs_a = [[{} if form is None else {(dolfinx.fem.IntegralType.cell, -1): np.zeros(shape=(
         0, 0), dtype=np.float64)} for form in forms] for forms in a] if coeffs_a is None else coeffs_a
 
-    bcs1 = dolfinx.fem.bcs_by_block(dolfinx.fem.forms.extract_function_spaces(a, 1), bcs)
+    bcs1 = dolfinx.fem.bcs_by_block(
+        dolfinx.fem.forms.extract_function_spaces(a, 1), bcs)
     b_local = dolfinx.cpp.la.petsc.get_local_vectors(b, maps)
     for b_sub, L_sub, a_sub, const_L, coeff_L, const_a, coeff_a in zip(b_local, L, a,
                                                                        constants_L, coeffs_L,
@@ -256,7 +304,8 @@ def _assemble_vector_block_vec(b: PETSc.Vec, L, a, bcs=[], x0=None,
     dolfinx.cpp.la.petsc.scatter_local_vectors(b, b_local, maps)
     b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
 
-    bcs0 = dolfinx.fem.bcs_by_block(dolfinx.fem.forms.extract_function_spaces(L), bcs)
+    bcs0 = dolfinx.fem.bcs_by_block(
+        dolfinx.fem.forms.extract_function_spaces(L), bcs)
     offset = 0
     b_array = b.getArray(readonly=False)
     for submap, bc, _x0 in zip(maps, bcs0, x0_sub):
