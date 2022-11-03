@@ -15,6 +15,30 @@
 
 namespace dolfinx_hdg::fem
 {
+    /// Modify b such that:
+    ///
+    ///   b <- b - scale * A_j (g_j - x0_j)
+    ///
+    /// where j is a block (nest) index. For a non-blocked problem j = 0. The
+    /// boundary conditions bcs1 are on the trial spaces V_j. The forms in
+    /// [a] must have the same test space as L (from which b was built), but the
+    /// trial space may differ. If x0 is not supplied, then it is treated as
+    /// zero.
+    ///
+    /// Ghost contributions are not accumulated (not sent to owner). Caller
+    /// is responsible for calling VecGhostUpdateBegin/End.
+    template <typename T>
+    void apply_lifting(
+        std::span<T> b, const std::vector<std::shared_ptr<const dolfinx::fem::Form<T>>> &a,
+        const std::vector<std::span<const T>> &constants,
+        const std::vector<std::map<std::pair<dolfinx::fem::IntegralType, int>,
+                                   std::pair<std::span<const T>, int>>> &coeffs,
+        const std::vector<std::vector<std::shared_ptr<const dolfinx::fem::DirichletBC<T>>>> &bcs1,
+        const std::vector<std::span<const T>> &x0, double scale)
+    {
+        impl::apply_lifting(b, a, constants, coeffs, bcs1, x0, scale);
+    }
+
     /// Assemble linear form into a vector, The caller supplies the form
     /// constants and coefficients for this version, which has efficiency
     /// benefits if the data can be re-used for multiple calls.
