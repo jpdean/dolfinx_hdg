@@ -147,8 +147,7 @@ def _assemble_matrix_mat(A: PETSc.Mat, a, bcs=[],
     # coeffs = pack_coefficients(a) if coeffs is None else coeffs
     constants = []
     import numpy as np
-    coeffs = {(dolfinx.fem.IntegralType.cell, -1)
-               : np.zeros(shape=(0, 0), dtype=np.float64)}
+    coeffs = {(dolfinx.fem.IntegralType.cell, -1)              : np.zeros(shape=(0, 0), dtype=np.float64)}
 
     dolfinx_hdg.cpp.assemble_matrix(A, a, constants, coeffs, bcs)
     if a.function_spaces[0] is a.function_spaces[1]:
@@ -297,9 +296,8 @@ def _assemble_vector_block_vec(b: PETSc.Vec, L, a, bcs=[], x0=None,
                                                                        constants_L, coeffs_L,
                                                                        constants_a, coeffs_a):
         dolfinx_hdg.cpp.assemble_vector(b_sub, L_sub, const_L, coeff_L)
-        print("TODO: Apply lifting")
-        # _cpp.fem.apply_lifting(b_sub, a_sub, const_a,
-        #                        coeff_a, bcs1, x0_local, scale)
+        dolfinx_hdg.cpp.apply_lifting(b_sub, a_sub, const_a,
+                                      coeff_a, bcs1, x0_local, scale)
 
     dolfinx.cpp.la.petsc.scatter_local_vectors(b, b_local, maps)
     b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
