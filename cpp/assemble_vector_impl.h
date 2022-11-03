@@ -21,6 +21,99 @@
 
 namespace dolfinx_hdg::fem::impl
 {
+    /// Modify RHS vector to account for boundary condition such that:
+    ///
+    /// b <- b - scale * A (x_bc - x0)
+    ///
+    /// @param[in,out] b The vector to be modified
+    /// @param[in] a The bilinear form that generates A
+    /// @param[in] constants Constants that appear in `a`
+    /// @param[in] coefficients Coefficients that appear in `a`
+    /// @param[in] bc_values1 The boundary condition 'values'
+    /// @param[in] bc_markers1 The indices (columns of A, rows of x) to
+    /// which bcs belong
+    /// @param[in] x0 The array used in the lifting, typically a 'current
+    /// solution' in a Newton method
+    /// @param[in] scale Scaling to apply
+    template <typename T>
+    void lift_bc(std::span<T> b, const dolfinx::fem::Form<T> &a,
+                 const std::span<const T> &constants,
+                 const std::map<std::pair<dolfinx::fem::IntegralType, int>,
+                                std::pair<std::span<const T>, int>> &coefficients,
+                 const std::span<const T> &bc_values1,
+                 const std::span<const std::int8_t> &bc_markers1,
+                 const std::span<const T> &x0, double scale)
+    {
+        std::shared_ptr<const dolfinx::mesh::Mesh> mesh = a.mesh();
+        assert(mesh);
+
+        // Get dofmap for columns and rows of a
+        assert(a.function_spaces().at(0));
+        assert(a.function_spaces().at(1));
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap0 = a.function_spaces()[0]->dofmap()->list();
+        const int bs0 = a.function_spaces()[0]->dofmap()->bs();
+        std::shared_ptr<const dolfinx::fem::FiniteElement> element0 = a.function_spaces()[0]->element();
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap1 = a.function_spaces()[1]->dofmap()->list();
+        const int bs1 = a.function_spaces()[1]->dofmap()->bs();
+        std::shared_ptr<const dolfinx::fem::FiniteElement> element1 = a.function_spaces()[1]->element();
+
+        const bool needs_transformation_data = element0->needs_dof_transformations() or element1->needs_dof_transformations() or a.needs_facet_permutations();
+
+        std::span<const std::uint32_t> cell_info_0;
+        std::span<const std::uint32_t> cell_info_1;
+        if (needs_transformation_data)
+        {
+            auto mesh_0 = a.function_spaces().at(0)->mesh();
+            auto mesh_1 = a.function_spaces().at(1)->mesh();
+            mesh_0->topology_mutable().create_entity_permutations();
+            mesh_1->topology_mutable().create_entity_permutations();
+            cell_info_0 = std::span(mesh_0->topology().get_cell_permutation_info());
+            cell_info_1 = std::span(mesh_1->topology().get_cell_permutation_info());
+        }
+
+        const std::function<void(const std::span<T> &,
+                                 const std::span<const std::uint32_t> &, std::int32_t,
+                                 int)>
+            dof_transform = element0->get_dof_transformation_function<T>();
+        const std::function<void(const std::span<T> &,
+                                 const std::span<const std::uint32_t> &, std::int32_t,
+                                 int)>
+            dof_transform_to_transpose = element1->get_dof_transformation_to_transpose_function<T>();
+
+        const auto entity_map_0 = a.function_space_to_entity_map(*a.function_spaces().at(0));
+        const auto entity_map_1 = a.function_space_to_entity_map(*a.function_spaces().at(1));
+
+        for (int i : a.integral_ids(dolfinx::fem::IntegralType::cell))
+        {
+            const auto &kernel = a.kernel(dolfinx::fem::IntegralType::cell, i);
+            const auto &[coeffs, cstride] = coefficients.at({dolfinx::fem::IntegralType::cell, i});
+            const std::vector<std::int32_t> &cells = a.cell_domains(i);
+            // if (bs0 == 1 and bs1 == 1)
+            // {
+            //     _lift_bc_cells<T, 1, 1>(b, mesh->geometry(), kernel, cells, dof_transform,
+            //                             dofmap0, bs0, dof_transform_to_transpose, dofmap1,
+            //                             bs1, constants, coeffs, cstride, cell_info_0,
+            //                             cell_info_1, bc_values1, bc_markers1, x0, scale,
+            //                             entity_map_0, entity_map_1);
+            // }
+            // else if (bs0 == 3 and bs1 == 3)
+            // {
+            //     _lift_bc_cells<T, 3, 3>(b, mesh->geometry(), kernel, cells, dof_transform,
+            //                             dofmap0, bs0, dof_transform_to_transpose, dofmap1,
+            //                             bs1, constants, coeffs, cstride, cell_info_0,
+            //                             cell_info_1, bc_values1, bc_markers1, x0, scale,
+            //                             entity_map_0, entity_map_1);
+            // }
+            // else
+            // {
+                // _lift_bc_cells(b, mesh->geometry(), kernel, cells, dof_transform, dofmap0,
+                //                bs0, dof_transform_to_transpose, dofmap1, bs1, constants,
+                //                coeffs, cstride, cell_info_0, cell_info_1, bc_values1,
+                //                bc_markers1, x0, scale, entity_map_0, entity_map_1);
+            // }
+        }
+    }
+
     /// Modify b such that:
     ///
     ///   b <- b - scale * A_j (g_j - x0_j)
@@ -84,16 +177,16 @@ namespace dolfinx_hdg::fem::impl
                     bc->dof_values(bc_values1);
                 }
 
-                // if (!x0.empty())
-                // {
-                //     lift_bc<T>(b, *a[j], constants[j], coeffs[j], bc_values1, bc_markers1,
-                //                x0[j], scale);
-                // }
-                // else
-                // {
-                //     lift_bc<T>(b, *a[j], constants[j], coeffs[j], bc_values1, bc_markers1,
-                //                std::span<const T>(), scale);
-                // }
+                if (!x0.empty())
+                {
+                    lift_bc<T>(b, *a[j], constants[j], coeffs[j], bc_values1, bc_markers1,
+                               x0[j], scale);
+                }
+                else
+                {
+                    lift_bc<T>(b, *a[j], constants[j], coeffs[j], bc_values1, bc_markers1,
+                               std::span<const T>(), scale);
+                }
             }
         }
     }
