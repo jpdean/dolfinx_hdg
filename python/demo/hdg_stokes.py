@@ -31,7 +31,7 @@ comm = MPI.COMM_WORLD
 rank = comm.rank
 out_str = f"rank {rank}:\n"
 
-n = 8
+n = 64
 msh = mesh.create_unit_square(
     comm, n, n, ghost_mode=mesh.GhostMode.none)
 
@@ -580,6 +580,7 @@ else:
     opts["fieldsplit_u_pc_hypre_type"] = "boomeramg"
     opts["fieldsplit_u_pc_hypre_boomeramg_cycle_type"] = "V"
     opts["fieldsplit_u_pc_hypre_boomeramg_grid_sweeps_all"] = 1
+    opts['fieldsplit_u_pc_hypre_boomeramg_strong_threshold'] = 0.3
     # opts["help"] = None
     opts["options_left"] = None
     ksp.setFromOptions()
