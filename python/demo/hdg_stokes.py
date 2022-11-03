@@ -578,6 +578,14 @@ else:
     is_pbar = PETSc.IS().createStride(Qbar.dofmap.index_map.size_local,
                                       offset_pbar, 1, comm=PETSc.COMM_SELF)
 
+    null_vec = A.createVecLeft()
+    offset = Vbar.dofmap.index_map.size_local * Vbar.dofmap.index_map_bs
+    null_vec.array[offset:] = 1.0
+    null_vec.normalize()
+    nsp = PETSc.NullSpace().create(vectors=[null_vec])
+    assert nsp.test(A)
+    A.setNullSpace(nsp)
+
     ksp = PETSc.KSP().create(msh.comm)
     ksp.setOperators(A, P)
     ksp.setTolerances(rtol=1e-8)
