@@ -534,7 +534,7 @@ bc_p_bar = fem.dirichletbc(PETSc.ScalarType(0.0), pressure_dof, Qbar)
 
 bcs = [bc_ubar]
 
-use_direct_solver = True
+use_direct_solver = False
 if use_direct_solver:
     bcs.append(bc_p_bar)
 
