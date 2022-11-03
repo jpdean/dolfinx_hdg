@@ -241,7 +241,11 @@ def compute_mats(coords):
         start = local_f * Vbar_ele_space_dim
         end = start + Vbar_ele_space_dim
         A_22[start:end, start:end] += A22_f[:, :]
+    return A_00, A_10, A_20, A_30, A_22
 
+
+@numba.njit(fastmath=True)
+def compute_tilde_mats(A_00, A_10, A_20, A_30):
     # Construct tilde matrices
     A_tilde = np.zeros((V_ele_space_dim + Q_ele_space_dim,
                         V_ele_space_dim + Q_ele_space_dim),
@@ -260,7 +264,7 @@ def compute_mats(coords):
                        dtype=PETSc.ScalarType)
     C_tilde[:, :V_ele_space_dim] = A_30[:, :]
 
-    return A_tilde, B_tilde, C_tilde, A_22
+    return A_tilde, B_tilde, C_tilde
 
 
 @numba.njit(fastmath=True)
@@ -300,7 +304,8 @@ def tabulate_tensor_a00(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Vbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
 
     A_local += A_22 - B_tilde @ np.linalg.solve(A_tilde, B_tilde.T)
 
@@ -311,7 +316,8 @@ def tabulate_tensor_a01(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Qbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
 
     A_local -= B_tilde @ np.linalg.solve(A_tilde, C_tilde.T)
 
@@ -322,7 +328,8 @@ def tabulate_tensor_a10(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Vbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
 
     A_local -= C_tilde @ np.linalg.solve(A_tilde, B_tilde.T)
 
@@ -333,9 +340,17 @@ def tabulate_tensor_a11(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Qbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
 
     A_local -= C_tilde @ np.linalg.solve(A_tilde, C_tilde.T)
+
+
+@numba.cfunc(c_signature, nopython=True, fastmath=True)
+def tabulate_tensor_p00(P_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
+    P_local = numba.carray(P_, (num_cell_facets * Vbar_ele_space_dim,
+                                num_cell_facets * Vbar_ele_space_dim),
+                           dtype=PETSc.ScalarType)
 
 
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
@@ -345,7 +360,7 @@ def tabulate_tensor_p11(P_, w_, c_, coords_, entity_local_index, permutation=ffi
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
     P_11_f = np.zeros((Qbar_ele_space_dim, Qbar_ele_space_dim),
-                       dtype=PETSc.ScalarType)
+                      dtype=PETSc.ScalarType)
 
     entity_local_index = np.zeros((1), dtype=np.int32)
     for local_f in range(num_cell_facets):
@@ -353,11 +368,11 @@ def tabulate_tensor_p11(P_, w_, c_, coords_, entity_local_index, permutation=ffi
         P_11_f.fill(0.0)
 
         kernel_p11(ffi.from_buffer(P_11_f),
-                  ffi.from_buffer(null64),
-                  ffi.from_buffer(null64),
-                  ffi.from_buffer(coords),
-                  ffi.from_buffer(entity_local_index),
-                  ffi.from_buffer(null8))
+                   ffi.from_buffer(null64),
+                   ffi.from_buffer(null64),
+                   ffi.from_buffer(coords),
+                   ffi.from_buffer(entity_local_index),
+                   ffi.from_buffer(null8))
 
         start = local_f * Qbar_ele_space_dim
         end = start + Qbar_ele_space_dim
@@ -370,7 +385,8 @@ def tabulate_tensor_L0(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
 
-    A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
     L_tilde = compute_L_tilde(coords)
 
     b_local -= B_tilde @ np.linalg.solve(A_tilde, L_tilde)
@@ -382,7 +398,8 @@ def tabulate_tensor_L1(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
 
-    A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
     L_tilde = compute_L_tilde(coords)
 
     b_local -= C_tilde @ np.linalg.solve(A_tilde, L_tilde)
@@ -400,7 +417,8 @@ def backsub_u(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     # FIXME This approach is more expensive then needed. It computes both
     # u and p and then only stores u. Would be better to write backsub
     # expression directly for u.
-    A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
     L_tilde = compute_L_tilde(coords)
 
     U = np.linalg.solve(A_tilde, L_tilde - B_tilde.T @
@@ -420,7 +438,8 @@ def backsub_p(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     # FIXME This approach is more expensive then needed. It computes both
     # u and p and then only stores p. Would be better to write backsub
     # expression directly for p.
-    A_tilde, B_tilde, C_tilde, A_22 = compute_mats(coords)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
     L_tilde = compute_L_tilde(coords)
 
     U = np.linalg.solve(A_tilde, L_tilde - B_tilde.T @
@@ -457,13 +476,20 @@ a11 = Form_float64(
 a = [[a00, a01],
      [a10, a11]]
 
+
+integrals_p00 = {
+    fem.IntegralType.cell: {-1: (tabulate_tensor_p00.address, [])}}
+p00 = Form_float64(
+    [Vbar._cpp_object, Vbar._cpp_object], integrals_p00, [], [], False, msh,
+    entity_maps={facet_mesh: inv_entity_map})
+
 integrals_p11 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_p11.address, [])}}
 p11 = Form_float64(
     [Qbar._cpp_object, Qbar._cpp_object], integrals_p11, [], [], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
-p = [[a00, None],
+p = [[p00, None],
      [None, p11]]
 
 msh_boundary_facets = mesh.locate_entities_boundary(msh, fdim, boundary)
@@ -482,7 +508,7 @@ bc_p_bar = fem.dirichletbc(PETSc.ScalarType(0.0), pressure_dof, Qbar)
 
 bcs = [bc_ubar]
 
-use_direct_solver = False
+use_direct_solver = True
 if use_direct_solver:
     bcs.append(bc_p_bar)
 
@@ -517,12 +543,18 @@ else:
     P = assemble_matrix_block_hdg(p, bcs=bcs)
     P.assemble()
 
+    print(P.norm())
+
+    assert False
+
     # FIXME Only assemble preconditioner here
     offset_ubar = Vbar.dofmap.index_map.local_range[0] * Vbar.dofmap.index_map_bs + \
         Qbar.dofmap.index_map.local_range[0]
     offset_pbar = offset_ubar + Vbar.dofmap.index_map.size_local * Vbar.dofmap.index_map_bs
-    is_ubar = PETSc.IS().createStride(Vbar.dofmap.index_map.size_local * Vbar.dofmap.index_map_bs, offset_ubar, 1, comm=PETSc.COMM_SELF)
-    is_pbar = PETSc.IS().createStride(Qbar.dofmap.index_map.size_local, offset_pbar, 1, comm=PETSc.COMM_SELF)
+    is_ubar = PETSc.IS().createStride(Vbar.dofmap.index_map.size_local *
+                                      Vbar.dofmap.index_map_bs, offset_ubar, 1, comm=PETSc.COMM_SELF)
+    is_pbar = PETSc.IS().createStride(Qbar.dofmap.index_map.size_local,
+                                      offset_pbar, 1, comm=PETSc.COMM_SELF)
 
     ksp = PETSc.KSP().create(msh.comm)
     ksp.setOperators(A, P)
