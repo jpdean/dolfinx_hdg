@@ -571,8 +571,7 @@ else:
     ksp_u.setType("preonly")
     ksp_u.getPC().setType("hypre")
     ksp_p.setType("preonly")
-    # TODO Use SOR
-    ksp_p.getPC().setType("lu")
+    ksp_p.getPC().setType("sor")
 
     # Monitor the convergence of the KSP
     opts = PETSc.Options()
@@ -580,7 +579,7 @@ else:
     opts["ksp_view"] = None
     opts["fieldsplit_u_pc_hypre_type"] = "boomeramg"
     opts["fieldsplit_u_pc_hypre_boomeramg_cycle_type"] = "V"
-    opts["fieldsplit_u_pc_hypre_boomeramg_grid_sweeps_all"] = 4
+    opts["fieldsplit_u_pc_hypre_boomeramg_grid_sweeps_all"] = 1
     # opts["help"] = None
     opts["options_left"] = None
     ksp.setFromOptions()
