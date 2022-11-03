@@ -16,6 +16,7 @@ from dolfinx.common import Timer, list_timings, TimingType
 from dolfinx_hdg.assemble import assemble_matrix as assemble_matrix_hdg
 from dolfinx_hdg.assemble import assemble_vector as assemble_vector_hdg
 from dolfinx_hdg.assemble import pack_coefficients
+from dolfinx_hdg.assemble import apply_lifting as apply_lifting_hdg
 from utils import reorder_mesh, norm_L2
 
 
@@ -40,13 +41,13 @@ def main():
 
     par_print("Create mesh")
     with Timer("Create mesh") as t:
-        # n = 8
-        n = round((500000 * comm.size / 60)**(1 / 3))
+        n = 8
+        # n = round((500000 * comm.size / 60)**(1 / 3))
         par_print(f"n = {n}")
-        # msh = mesh.create_unit_square(
-        #     comm, n, n, ghost_mode=mesh.GhostMode.none)
-        msh = mesh.create_unit_cube(
-            comm, n, n, n, ghost_mode=mesh.GhostMode.none)
+        msh = mesh.create_unit_square(
+            comm, n, n, ghost_mode=mesh.GhostMode.none)
+        # msh = mesh.create_unit_cube(
+        #     comm, n, n, n, ghost_mode=mesh.GhostMode.none)
         reorder_mesh(msh)
 
     par_print("Create submesh")
@@ -265,11 +266,9 @@ def main():
                                       for facet in msh_boundary_facets]
         bc_dofs = fem.locate_dofs_topological(
             Vbar, fdim, facet_mesh_boundary_facets)
-        num_dofs_Vbar = (Vbar.dofmap.index_map.size_local +
-                         Vbar.dofmap.index_map.num_ghosts) * V.dofmap.index_map_bs
-        bc_dofs_marker = np.full(num_dofs_Vbar, False, dtype=np.bool8)
-        bc_dofs_marker[bc_dofs] = True
-        bc = fem.dirichletbc(PETSc.ScalarType(0.0), bc_dofs, Vbar)
+        u_bc = fem.Function(Vbar)
+        u_bc.interpolate(lambda x: np.sin(np.pi * x[0]))
+        bc = fem.dirichletbc(u_bc, bc_dofs)
 
     par_print("Assemble mat")
     with Timer("Assemble mat") as t:
@@ -289,6 +288,7 @@ def main():
             [Vbar._cpp_object], integrals_L, [], [], False, msh,
             entity_maps={facet_mesh: inv_entity_map})
         b = assemble_vector_hdg(L)
+        apply_lifting_hdg(b, [a], bcs=[[bc]])
         b.ghostUpdate(addv=PETSc.InsertMode.ADD,
                       mode=PETSc.ScatterMode.REVERSE)
         fem.petsc.set_bc(b, [bc])
@@ -354,9 +354,9 @@ def main():
         u.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
                              mode=PETSc.ScatterMode.REVERSE)
 
-    # par_print("Write")
-    # with io.VTXWriter(msh.comm, "u.bp", u) as f:
-    #     f.write(0.0)
+    par_print("Write")
+    with io.VTXWriter(msh.comm, "u.bp", u) as f:
+        f.write(0.0)
 
     par_print("Compute error")
     with Timer("Compute error") as t:
