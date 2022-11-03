@@ -133,7 +133,6 @@ namespace dolfinx_hdg_wrappers
                                [](auto &c)
                                { return py_to_cpp_coeffs(c); });
 
-                std::cout << "apply_lifting pybind\n";
                 dolfinx_hdg::fem::apply_lifting<T>(std::span(b.mutable_data(), b.size()), a,
                                                    _constants, _coeffs, bcs1, _x0, scale);
             },
