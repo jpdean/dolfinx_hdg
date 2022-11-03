@@ -31,7 +31,7 @@ comm = MPI.COMM_WORLD
 rank = comm.rank
 out_str = f"rank {rank}:\n"
 
-n = 64
+n = 8
 msh = mesh.create_unit_square(
     comm, n, n, ghost_mode=mesh.GhostMode.none)
 
@@ -81,21 +81,24 @@ n = ufl.FacetNormal(msh)
 gamma = 6.0 * k**2 / h
 
 
-def u_e(x):
-    return ufl.as_vector(
-        (x[0]**2 * (1 - x[0])**2 * (2 * x[1] - 6 * x[1]**2 + 4 * x[1]**3),
-         - x[1]**2 * (1 - x[1])**2 * (2 * x[0] - 6 * x[0]**2 + 4 * x[0]**3)))
+def u_e(x, module=np):
+    u_x = module.sin(module.pi * x[0]) * module.cos(module.pi * x[1])
+    u_y = - module.sin(module.pi * x[1]) * module.cos(module.pi * x[0])
+    if module == np:
+        return np.stack((u_x, u_y))
+    else:
+        return ufl.as_vector((u_x, u_y))
 
 
-def p_e(x):
-    return x[0] * (1 - x[0])
+def p_e(x, module=np):
+    return module.sin(module.pi * x[0]) * module.sin(module.pi * x[1])
 
 
 dx_c = ufl.Measure("dx", domain=msh)
 ds_c = ufl.Measure("ds", domain=msh)
 
 x = ufl.SpatialCoordinate(msh)
-f = - div(grad(u_e(x))) + grad(p_e(x))
+f = - div(grad(u_e(x, ufl))) + grad(p_e(x, ufl))
 
 a_00 = inner(grad(u), grad(v)) * dx_c + gamma * inner(u, v) * ds_c \
     - (inner(u, dot(grad(v), n))
@@ -501,7 +504,9 @@ msh_boundary_facets = mesh.locate_entities_boundary(msh, fdim, boundary)
 facet_mesh_boundary_facets = [inv_entity_map[facet]
                               for facet in msh_boundary_facets]
 dofs = fem.locate_dofs_topological(Vbar, fdim, facet_mesh_boundary_facets)
-bc_ubar = fem.dirichletbc(np.zeros(2, dtype=PETSc.ScalarType), dofs, Vbar)
+u_bc = fem.Function(Vbar)
+u_bc.interpolate(u_e)
+bc_ubar = fem.dirichletbc(u_bc, dofs)
 
 pressure_dof = fem.locate_dofs_geometrical(
     Qbar, lambda x: np.logical_and(np.isclose(x[0], 0.0),
@@ -513,7 +518,7 @@ bc_p_bar = fem.dirichletbc(PETSc.ScalarType(0.0), pressure_dof, Qbar)
 
 bcs = [bc_ubar]
 
-use_direct_solver = False
+use_direct_solver = True
 if use_direct_solver:
     bcs.append(bc_p_bar)
 
@@ -605,10 +610,10 @@ with io.VTXWriter(msh.comm, "pbar.bp", pbar_h) as f:
     f.write(0.0)
 
 xbar = ufl.SpatialCoordinate(facet_mesh)
-e_ubar = norm_L2(msh.comm, ubar_h - u_e(xbar))
+e_ubar = norm_L2(msh.comm, ubar_h - u_e(xbar, ufl))
 pbar_h_avg = domain_average(facet_mesh, pbar_h)
-pbar_e_avg = domain_average(facet_mesh, p_e(xbar))
-e_pbar = norm_L2(msh.comm, (pbar_h - pbar_h_avg) - (p_e(xbar) - pbar_e_avg))
+pbar_e_avg = domain_average(facet_mesh, p_e(xbar, ufl))
+e_pbar = norm_L2(msh.comm, (pbar_h - pbar_h_avg) - (p_e(xbar, ufl) - pbar_e_avg))
 
 integrals_backsub_u = {fem.IntegralType.cell: {-1: (backsub_u.address, [])}}
 u_form = Form_float64([V._cpp_object], integrals_backsub_u,
@@ -638,11 +643,11 @@ with io.VTXWriter(msh.comm, "p.bp", p_h) as f:
     f.write(0.0)
 
 x = ufl.SpatialCoordinate(msh)
-e_u = norm_L2(msh.comm, u_h - u_e(x))
+e_u = norm_L2(msh.comm, u_h - u_e(x, ufl))
 e_div_u = norm_L2(msh.comm, div(u_h))
 p_h_avg = domain_average(msh, p_h)
-p_e_avg = domain_average(msh, p_e(x))
-e_p = norm_L2(msh.comm, (p_h - p_h_avg) - (p_e(x) - p_e_avg))
+p_e_avg = domain_average(msh, p_e(x, ufl))
+e_p = norm_L2(msh.comm, (p_h - p_h_avg) - (p_e(x, ufl) - p_e_avg))
 
 if rank == 0:
     print(f"e_u = {e_u}")
