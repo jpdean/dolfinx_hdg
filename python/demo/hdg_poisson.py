@@ -50,10 +50,10 @@ def main():
         n = 8
         # n = round((500000 * comm.size / 60)**(1 / 3))
         par_print(f"n = {n}")
-        msh = mesh.create_unit_square(
-            comm, n, n, ghost_mode=mesh.GhostMode.none)
-        # msh = mesh.create_unit_cube(
-        #     comm, n, n, n, ghost_mode=mesh.GhostMode.none)
+        # msh = mesh.create_unit_square(
+        #     comm, n, n, ghost_mode=mesh.GhostMode.none)
+        msh = mesh.create_unit_cube(
+            comm, n, n, n, ghost_mode=mesh.GhostMode.none)
         reorder_mesh(msh)
 
     par_print("Create submesh")
