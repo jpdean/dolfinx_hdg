@@ -37,6 +37,12 @@ def main():
             print(string)
             sys.stdout.flush()
 
+    def u_e(x, module=np):
+        u_e = 1
+        for i in range(tdim):
+            u_e *= module.cos(module.pi * x[i])
+        return u_e
+
     comm = MPI.COMM_WORLD
 
     par_print("Create mesh")
@@ -98,10 +104,7 @@ def main():
         a_11 = gamma * inner(ubar, vbar) * ds_c
 
         x = ufl.SpatialCoordinate(msh)
-        u_e = 1
-        for i in range(tdim):
-            u_e *= ufl.sin(ufl.pi * x[i])
-        f = - div(grad(u_e))
+        f = - div(grad(u_e(x, ufl)))
         L_0 = inner(f, v) * dx_c
 
     par_print("Create inv ent map")
@@ -267,7 +270,7 @@ def main():
         bc_dofs = fem.locate_dofs_topological(
             Vbar, fdim, facet_mesh_boundary_facets)
         u_bc = fem.Function(Vbar)
-        u_bc.interpolate(lambda x: np.sin(np.pi * x[0]))
+        u_bc.interpolate(u_e)
         bc = fem.dirichletbc(u_bc, bc_dofs)
 
     par_print("Assemble mat")
@@ -360,7 +363,7 @@ def main():
 
     par_print("Compute error")
     with Timer("Compute error") as t:
-        e_L2 = norm_L2(msh.comm, u - u_e)
+        e_L2 = norm_L2(msh.comm, u - u_e(x, ufl))
     if msh.comm.rank == 0:
         print(f"e_L2 = {e_L2}")
 
