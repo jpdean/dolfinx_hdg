@@ -21,6 +21,192 @@
 
 namespace dolfinx_hdg::fem::impl
 {
+    /// Implementation of bc application
+    /// @tparam T The scalar type
+    /// @tparam _bs0 The block size of the form test function dof map. If
+    /// less than zero the block size is determined at runtime. If `_bs0` is
+    /// positive the block size is used as a compile-time constant, which
+    /// has performance benefits.
+    /// @tparam _bs1 The block size of the trial function dof map.
+    template <typename T, int _bs0 = -1, int _bs1 = -1>
+    void _lift_bc_cells(
+        std::span<T> b, const mesh::Mesh &mesh,
+        const std::function<void(T *, const T *, const T *,
+                                 const dolfinx::fem::impl::scalar_value_type_t<T> *, const int *,
+                                 const std::uint8_t *)> &kernel,
+        const std::span<const std::int32_t> &cells,
+        const std::function<void(const std::span<T> &,
+                                 const std::span<const std::uint32_t> &,
+                                 std::int32_t, int)> &dof_transform,
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap0, int bs0,
+        const std::function<void(const std::span<T> &,
+                                 const std::span<const std::uint32_t> &,
+                                 std::int32_t, int)> &dof_transform_to_transpose,
+        const dolfinx::graph::AdjacencyList<std::int32_t> &dofmap1, int bs1,
+        const std::span<const T> &constants, const std::span<const T> &coeffs,
+        int cstride, const std::span<const std::uint32_t> &cell_info_0,
+        const std::span<const std::uint32_t> &cell_info_1,
+        const std::span<const T> &bc_values1,
+        const std::span<const std::int8_t> &bc_markers1,
+        const std::span<const T> &x0, double scale,
+        const std::function<std::int32_t(const std::span<const std::int32_t> &)> &
+            cell_map_0,
+        const std::function<std::int32_t(const std::span<const std::int32_t> &)> &
+            cell_map_1)
+    {
+        assert(_bs0 < 0 or _bs0 == bs0);
+        assert(_bs1 < 0 or _bs1 == bs1);
+
+        if (cells.empty())
+            return;
+
+        // Prepare cell geometry
+        const dolfinx::mesh::Geometry &geometry = mesh.geometry();
+        const dolfinx::graph::AdjacencyList<std::int32_t> &x_dofmap = geometry.dofmap();
+        const std::size_t num_dofs_g = geometry.cmap().dim();
+        std::span<const double> x_g = geometry.x();
+
+        const int num_dofs0 = dofmap0.links(0).size();
+        const int num_dofs1 = dofmap1.links(0).size();
+        const int ndim0 = bs0 * num_dofs0;
+        const int ndim1 = bs1 * num_dofs1;
+        const int num_cell_facets =
+            dolfinx::mesh::cell_num_entities(mesh.topology().cell_type(),
+                                             mesh.topology().dim() - 1);
+
+        // Data structures used in bc application
+        std::vector<dolfinx::fem::impl::scalar_value_type_t<T>> coordinate_dofs(3 * num_dofs_g);
+        std::vector<T> Ae, be;
+        std::vector<std::int32_t> dofs0(num_dofs0 * num_cell_facets);
+        std::vector<std::int32_t> dofs1(num_dofs1 * num_cell_facets);
+        const dolfinx::fem::impl::scalar_value_type_t<T> _scale =
+            static_cast<dolfinx::fem::impl::scalar_value_type_t<T>>(scale);
+        for (std::size_t index = 0; index < cells.size(); ++index)
+        {
+            std::int32_t c = cells[index];
+
+            for (int local_facet = 0; local_facet < num_cell_facets; ++local_facet)
+            {
+                const std::array cell_local_facet = {c, local_facet};
+                const std::int32_t facet_0 = cell_map_0(cell_local_facet);
+                const std::int32_t facet_1 = cell_map_1(cell_local_facet);
+                auto dofs0_f = dofmap0.links(facet_0);
+                auto dofs1_f = dofmap1.links(facet_1);
+
+                std::copy_n(dofs0_f.begin(), dofs0_f.size(), dofs0.begin() + num_dofs0 * local_facet);
+                std::copy_n(dofs1_f.begin(), dofs1_f.size(), dofs1.begin() + num_dofs1 * local_facet);
+            }
+
+            // Check if bc is applied to cell
+            bool has_bc = false;
+            for (std::size_t j = 0; j < dofs1.size(); ++j)
+            {
+                if constexpr (_bs1 > 0)
+                {
+                    for (int k = 0; k < _bs1; ++k)
+                    {
+                        assert(_bs1 * dofs1[j] + k < (int)bc_markers1.size());
+                        if (bc_markers1[_bs1 * dofs1[j] + k])
+                        {
+                            has_bc = true;
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    for (int k = 0; k < bs1; ++k)
+                    {
+                        assert(bs1 * dofs1[j] + k < (int)bc_markers1.size());
+                        if (bc_markers1[bs1 * dofs1[j] + k])
+                        {
+                            has_bc = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!has_bc)
+                continue;
+
+            // Get cell coordinates/geometry
+            auto x_dofs = x_dofmap.links(c);
+            for (std::size_t i = 0; i < x_dofs.size(); ++i)
+            {
+                std::copy_n(std::next(x_g.begin(), 3 * x_dofs[i]), 3,
+                            std::next(coordinate_dofs.begin(), 3 * i));
+            }
+
+            const int num_rows = bs0 * dofs0.size();
+            const int num_cols = bs1 * dofs1.size();
+
+            const T *coeff_array = coeffs.data() + index * cstride;
+            Ae.resize(num_rows * num_cols);
+            std::fill(Ae.begin(), Ae.end(), 0);
+            kernel(Ae.data(), coeff_array, constants.data(), coordinate_dofs.data(),
+                   nullptr, nullptr);
+
+            // TODO Dof transformations
+            // dof_transform(Ae, cell_info_1, c_1, num_cols);
+            // dof_transform_to_transpose(Ae, cell_info_0, c_0, num_rows);
+
+            // Size data structure for assembly
+            be.resize(num_rows);
+            std::fill(be.begin(), be.end(), 0);
+            for (std::size_t j = 0; j < dofs1.size(); ++j)
+            {
+                if constexpr (_bs1 > 0)
+                {
+                    for (int k = 0; k < _bs1; ++k)
+                    {
+                        const std::int32_t jj = _bs1 * dofs1[j] + k;
+                        assert(jj < (int)bc_markers1.size());
+                        if (bc_markers1[jj])
+                        {
+                            const T bc = bc_values1[jj];
+                            const T _x0 = x0.empty() ? 0.0 : x0[jj];
+                            // const T _x0 = 0.0;
+                            // be -= Ae.col(bs1 * j + k) * scale * (bc - _x0);
+                            for (int m = 0; m < num_rows; ++m)
+                                be[m] -= Ae[m * num_cols + _bs1 * j + k] * _scale * (bc - _x0);
+                        }
+                    }
+                }
+                else
+                {
+                    for (int k = 0; k < bs1; ++k)
+                    {
+                        const std::int32_t jj = bs1 * dofs1[j] + k;
+                        assert(jj < (int)bc_markers1.size());
+                        if (bc_markers1[jj])
+                        {
+                            const T bc = bc_values1[jj];
+                            const T _x0 = x0.empty() ? 0.0 : x0[jj];
+                            // be -= Ae.col(bs1 * j + k) * scale * (bc - _x0);
+                            for (int m = 0; m < num_rows; ++m)
+                                be[m] -= Ae[m * num_cols + bs1 * j + k] * _scale * (bc - _x0);
+                        }
+                    }
+                }
+            }
+
+            for (std::size_t i = 0; i < dofs0.size(); ++i)
+            {
+                if constexpr (_bs0 > 0)
+                {
+                    for (int k = 0; k < _bs0; ++k)
+                        b[_bs0 * dofs0[i] + k] += be[_bs0 * i + k];
+                }
+                else
+                {
+                    for (int k = 0; k < bs0; ++k)
+                        b[bs0 * dofs0[i] + k] += be[bs0 * i + k];
+                }
+            }
+        }
+    }
+
     /// Modify RHS vector to account for boundary condition such that:
     ///
     /// b <- b - scale * A (x_bc - x0)
@@ -106,10 +292,10 @@ namespace dolfinx_hdg::fem::impl
             // }
             // else
             // {
-                // _lift_bc_cells(b, mesh->geometry(), kernel, cells, dof_transform, dofmap0,
-                //                bs0, dof_transform_to_transpose, dofmap1, bs1, constants,
-                //                coeffs, cstride, cell_info_0, cell_info_1, bc_values1,
-                //                bc_markers1, x0, scale, entity_map_0, entity_map_1);
+            _lift_bc_cells(b, *mesh, kernel, cells, dof_transform, dofmap0,
+                           bs0, dof_transform_to_transpose, dofmap1, bs1, constants,
+                           coeffs, cstride, cell_info_0, cell_info_1, bc_values1,
+                           bc_markers1, x0, scale, entity_map_0, entity_map_1);
             // }
         }
     }
