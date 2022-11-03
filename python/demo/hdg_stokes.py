@@ -31,9 +31,11 @@ comm = MPI.COMM_WORLD
 rank = comm.rank
 out_str = f"rank {rank}:\n"
 
-n = 8
-msh = mesh.create_unit_square(
-    comm, n, n, ghost_mode=mesh.GhostMode.none)
+n = 4
+# msh = mesh.create_unit_square(
+#     comm, n, n, ghost_mode=mesh.GhostMode.none)
+msh = mesh.create_unit_cube(
+    comm, n, n, n, ghost_mode=mesh.GhostMode.none)
 
 # Currently, permutations are not working in parallel, so reorder the
 # mesh
@@ -82,16 +84,30 @@ gamma = 6.0 * k**2 / h
 
 
 def u_e(x, module=np):
-    u_x = module.sin(module.pi * x[0]) * module.cos(module.pi * x[1])
-    u_y = - module.sin(module.pi * x[1]) * module.cos(module.pi * x[0])
-    if module == np:
-        return np.stack((u_x, u_y))
+    if tdim == 2:
+        u_x = module.sin(module.pi * x[0]) * module.cos(module.pi * x[1])
+        u_y = - module.sin(module.pi * x[1]) * module.cos(module.pi * x[0])
+        if module == np:
+            return np.stack((u_x, u_y))
+        else:
+            return ufl.as_vector((u_x, u_y))
     else:
-        return ufl.as_vector((u_x, u_y))
+        assert tdim == 3
+        u_x = module.sin(module.pi * x[0]) * module.cos(module.pi * x[1]) - module.sin(module.pi * x[0]) * module.cos(module.pi * x[2])
+        u_y = module.sin(module.pi * x[1]) * module.cos(module.pi * x[2]) - module.sin(module.pi * x[1]) * module.cos(module.pi * x[0])
+        u_z = module.sin(module.pi * x[2]) * module.cos(module.pi * x[0]) - module.sin(module.pi * x[2]) * module.cos(module.pi * x[1])
+        if module == np:
+            return np.stack((u_x, u_y, u_z))
+        else:
+            return ufl.as_vector((u_x, u_y, u_z))
 
 
 def p_e(x, module=np):
-    return module.sin(module.pi * x[0]) * module.sin(module.pi * x[1])
+    if tdim == 2:
+        return module.sin(module.pi * x[0]) * module.sin(module.pi * x[1])
+    else:
+        assert tdim == 3
+        return module.sin(module.pi * x[0]) * module.sin(module.pi * x[1]) * module.sin(module.pi * x[2])
 
 
 dx_c = ufl.Measure("dx", domain=msh)
@@ -518,7 +534,7 @@ bc_p_bar = fem.dirichletbc(PETSc.ScalarType(0.0), pressure_dof, Qbar)
 
 bcs = [bc_ubar]
 
-use_direct_solver = False
+use_direct_solver = True
 if use_direct_solver:
     bcs.append(bc_p_bar)
 
