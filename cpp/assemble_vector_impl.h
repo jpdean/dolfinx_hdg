@@ -49,54 +49,53 @@ namespace dolfinx_hdg::fem::impl
         const std::vector<std::vector<std::shared_ptr<const dolfinx::fem::DirichletBC<T>>>> &bcs1,
         const std::vector<std::span<const T>> &x0, double scale)
     {
-        std::cout << "Apply lifting cpp\n";
-        // // FIXME: make changes to reactivate this check
-        // if (!x0.empty() and x0.size() != a.size())
-        // {
-        //     throw std::runtime_error(
-        //         "Mismatch in size between x0 and bilinear form in assembler.");
-        // }
+        // FIXME: make changes to reactivate this check
+        if (!x0.empty() and x0.size() != a.size())
+        {
+            throw std::runtime_error(
+                "Mismatch in size between x0 and bilinear form in assembler.");
+        }
 
-        // if (a.size() != bcs1.size())
-        // {
-        //     throw std::runtime_error(
-        //         "Mismatch in size between a and bcs in assembler.");
-        // }
+        if (a.size() != bcs1.size())
+        {
+            throw std::runtime_error(
+                "Mismatch in size between a and bcs in assembler.");
+        }
 
-        // for (std::size_t j = 0; j < a.size(); ++j)
-        // {
-        //     std::vector<std::int8_t> bc_markers1;
-        //     std::vector<T> bc_values1;
-        //     if (a[j] and !bcs1[j].empty())
-        //     {
-        //         assert(a[j]->function_spaces().at(0));
+        for (std::size_t j = 0; j < a.size(); ++j)
+        {
+            std::vector<std::int8_t> bc_markers1;
+            std::vector<T> bc_values1;
+            if (a[j] and !bcs1[j].empty())
+            {
+                assert(a[j]->function_spaces().at(0));
 
-        //         auto V1 = a[j]->function_spaces()[1];
-        //         assert(V1);
-        //         auto map1 = V1->dofmap()->index_map;
-        //         const int bs1 = V1->dofmap()->index_map_bs();
-        //         assert(map1);
-        //         const int crange = bs1 * (map1->size_local() + map1->num_ghosts());
-        //         bc_markers1.assign(crange, false);
-        //         bc_values1.assign(crange, 0.0);
-        //         for (const std::shared_ptr<const DirichletBC<T>> &bc : bcs1[j])
-        //         {
-        //             bc->mark_dofs(bc_markers1);
-        //             bc->dof_values(bc_values1);
-        //         }
+                auto V1 = a[j]->function_spaces()[1];
+                assert(V1);
+                auto map1 = V1->dofmap()->index_map;
+                const int bs1 = V1->dofmap()->index_map_bs();
+                assert(map1);
+                const int crange = bs1 * (map1->size_local() + map1->num_ghosts());
+                bc_markers1.assign(crange, false);
+                bc_values1.assign(crange, 0.0);
+                for (const std::shared_ptr<const dolfinx::fem::DirichletBC<T>> &bc : bcs1[j])
+                {
+                    bc->mark_dofs(bc_markers1);
+                    bc->dof_values(bc_values1);
+                }
 
-        //         if (!x0.empty())
-        //         {
-        //             lift_bc<T>(b, *a[j], constants[j], coeffs[j], bc_values1, bc_markers1,
-        //                        x0[j], scale);
-        //         }
-        //         else
-        //         {
-        //             lift_bc<T>(b, *a[j], constants[j], coeffs[j], bc_values1, bc_markers1,
-        //                        std::span<const T>(), scale);
-        //         }
-        //     }
-        // }
+                // if (!x0.empty())
+                // {
+                //     lift_bc<T>(b, *a[j], constants[j], coeffs[j], bc_values1, bc_markers1,
+                //                x0[j], scale);
+                // }
+                // else
+                // {
+                //     lift_bc<T>(b, *a[j], constants[j], coeffs[j], bc_values1, bc_markers1,
+                //                std::span<const T>(), scale);
+                // }
+            }
+        }
     }
 
     /// Execute kernel over cells and accumulate result in vector
