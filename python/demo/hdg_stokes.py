@@ -13,6 +13,7 @@ from dolfinx.cpp.fem import Form_float64
 from dolfinx_hdg.assemble import assemble_matrix_block as assemble_matrix_block_hdg
 from dolfinx_hdg.assemble import assemble_vector_block as assemble_vector_block_hdg
 from dolfinx_hdg.assemble import pack_coefficients
+import sys
 
 
 def boundary(x):
@@ -29,18 +30,27 @@ def boundary(x):
 
 comm = MPI.COMM_WORLD
 rank = comm.rank
-out_str = f"rank {rank}:\n"
 
+
+def par_print(string):
+    if rank == 0:
+        print(string)
+        sys.stdout.flush()
+
+
+par_print("Create mesh")
 n = 4
 # msh = mesh.create_unit_square(
 #     comm, n, n, ghost_mode=mesh.GhostMode.none)
 msh = mesh.create_unit_cube(
     comm, n, n, n, ghost_mode=mesh.GhostMode.none)
 
+par_print("Reorder mesh")
 # Currently, permutations are not working in parallel, so reorder the
 # mesh
 reorder_mesh(msh)
 
+par_print("Create facet mesh")
 tdim = msh.topology.dim
 fdim = tdim - 1
 
@@ -54,6 +64,7 @@ facets = np.arange(num_facets, dtype=np.int32)
 # necessarily the identity in parallel
 facet_mesh, entity_map = mesh.create_submesh(msh, fdim, facets)[0:2]
 
+par_print("Create function spaces")
 k = 2
 V = fem.VectorFunctionSpace(msh, ("Discontinuous Lagrange", k))
 Q = fem.FunctionSpace(msh, ("Discontinuous Lagrange", k - 1))
@@ -61,6 +72,7 @@ Vbar = fem.VectorFunctionSpace(
     facet_mesh, ("Discontinuous Lagrange", k))
 Qbar = fem.FunctionSpace(facet_mesh, ("Discontinuous Lagrange", k))
 
+par_print("Define problem")
 u = ufl.TrialFunction(V)
 v = ufl.TestFunction(V)
 p = ufl.TrialFunction(Q)
@@ -80,7 +92,13 @@ num_dofs_g = len(msh.geometry.dofmap.links(0))
 
 h = ufl.CellDiameter(msh)
 n = ufl.FacetNormal(msh)
-gamma = 6.0 * k**2 / h
+
+gamma = k**2 / h
+if tdim == 2:
+    gamma *= 6.0
+else:
+    assert tdim == 3
+    gamma *= 10.0
 
 
 def u_e(x, module=np):
@@ -93,9 +111,12 @@ def u_e(x, module=np):
             return ufl.as_vector((u_x, u_y))
     else:
         assert tdim == 3
-        u_x = module.sin(module.pi * x[0]) * module.cos(module.pi * x[1]) - module.sin(module.pi * x[0]) * module.cos(module.pi * x[2])
-        u_y = module.sin(module.pi * x[1]) * module.cos(module.pi * x[2]) - module.sin(module.pi * x[1]) * module.cos(module.pi * x[0])
-        u_z = module.sin(module.pi * x[2]) * module.cos(module.pi * x[0]) - module.sin(module.pi * x[2]) * module.cos(module.pi * x[1])
+        u_x = module.sin(module.pi * x[0]) * module.cos(module.pi * x[1]) - \
+            module.sin(module.pi * x[0]) * module.cos(module.pi * x[2])
+        u_y = module.sin(module.pi * x[1]) * module.cos(module.pi * x[2]) - \
+            module.sin(module.pi * x[1]) * module.cos(module.pi * x[0])
+        u_z = module.sin(module.pi * x[2]) * module.cos(module.pi * x[0]) - \
+            module.sin(module.pi * x[2]) * module.cos(module.pi * x[1])
         if module == np:
             return np.stack((u_x, u_y, u_z))
         else:
@@ -128,10 +149,12 @@ p_11 = h * inner(pbar, qbar) * ds_c
 
 L_0 = inner(f, v) * dx_c
 
+par_print("Create inverse entity map")
 inv_entity_map = np.full_like(entity_map, -1)
 for i, f in enumerate(entity_map):
     inv_entity_map[f] = i
 
+par_print("JIT kernels")
 nptype = "float64"
 ffcxtype = "double"
 
@@ -376,7 +399,6 @@ def tabulate_tensor_p00(P_, w_, c_, coords_, entity_local_index, permutation=ffi
     P_local += A_22 - A_20 @ np.linalg.solve(A_00, A_20.T)
 
 
-
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
 def tabulate_tensor_p11(P_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     P_local = numba.carray(P_, (num_cell_facets * Qbar_ele_space_dim,
@@ -473,6 +495,7 @@ def backsub_p(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
 
 np.set_printoptions(suppress=True, linewidth=200, precision=3)
 
+par_print("Create forms")
 integrals_a00 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a00.address, [])}}
 a00 = Form_float64(
@@ -516,6 +539,21 @@ p11 = Form_float64(
 p = [[p00, None],
      [None, p11]]
 
+integrals_L0 = {
+    fem.IntegralType.cell: {-1: (tabulate_tensor_L0.address, [])}}
+L0 = Form_float64(
+    [Vbar._cpp_object], integrals_L0, [], [], False, msh,
+    entity_maps={facet_mesh: inv_entity_map})
+
+integrals_L1 = {
+    fem.IntegralType.cell: {-1: (tabulate_tensor_L1.address, [])}}
+L1 = Form_float64(
+    [Qbar._cpp_object], integrals_L1, [], [], False, msh,
+    entity_maps={facet_mesh: inv_entity_map})
+
+L = [L0, L1]
+
+par_print("Boundary conditions")
 msh_boundary_facets = mesh.locate_entities_boundary(msh, fdim, boundary)
 facet_mesh_boundary_facets = [inv_entity_map[facet]
                               for facet in msh_boundary_facets]
@@ -538,23 +576,11 @@ use_direct_solver = False
 if use_direct_solver:
     bcs.append(bc_p_bar)
 
+par_print("Assemble matrix")
 A = assemble_matrix_block_hdg(a, bcs=bcs)
 A.assemble()
 
-integrals_L0 = {
-    fem.IntegralType.cell: {-1: (tabulate_tensor_L0.address, [])}}
-L0 = Form_float64(
-    [Vbar._cpp_object], integrals_L0, [], [], False, msh,
-    entity_maps={facet_mesh: inv_entity_map})
-
-integrals_L1 = {
-    fem.IntegralType.cell: {-1: (tabulate_tensor_L1.address, [])}}
-L1 = Form_float64(
-    [Qbar._cpp_object], integrals_L1, [], [], False, msh,
-    entity_maps={facet_mesh: inv_entity_map})
-
-L = [L0, L1]
-
+par_print("Assemble vector")
 b = assemble_vector_block_hdg(L, a, bcs=bcs)
 
 
@@ -565,7 +591,7 @@ if use_direct_solver:
     ksp.getPC().setType("lu")
     ksp.getPC().setFactorSolverType("superlu_dist")
 else:
-    # TODO Set nullspace
+    par_print("Assemble preconditioner")
     P = assemble_matrix_block_hdg(p, bcs=bcs)
     P.assemble()
 
@@ -600,20 +626,21 @@ else:
     ksp_u.setType("preonly")
     ksp_u.getPC().setType("hypre")
     ksp_p.setType("preonly")
-    ksp_p.getPC().setType("sor")
+    ksp_p.getPC().setType("lu")
 
     # Monitor the convergence of the KSP
     opts = PETSc.Options()
     opts["ksp_monitor"] = None
     opts["ksp_view"] = None
     opts["fieldsplit_u_pc_hypre_type"] = "boomeramg"
-    opts["fieldsplit_u_pc_hypre_boomeramg_cycle_type"] = "V"
-    opts["fieldsplit_u_pc_hypre_boomeramg_grid_sweeps_all"] = 1
-    opts['fieldsplit_u_pc_hypre_boomeramg_strong_threshold'] = 0.3
+    # opts["fieldsplit_u_pc_hypre_boomeramg_cycle_type"] = "V"
+    # opts["fieldsplit_u_pc_hypre_boomeramg_grid_sweeps_all"] = 4
+    # opts['fieldsplit_u_pc_hypre_boomeramg_strong_threshold'] = 0.5
     # opts["help"] = None
     opts["options_left"] = None
     ksp.setFromOptions()
 
+par_print("Solve")
 x = A.createVecRight()
 ksp.solve(b, x)
 
@@ -628,17 +655,21 @@ pbar_h.x.array[:(len(x.array_r) - offset)] = x.array_r[offset:]
 ubar_h.x.scatter_forward()
 pbar_h.x.scatter_forward()
 
+par_print("Write to file")
 with io.VTXWriter(msh.comm, "ubar.bp", ubar_h) as f:
     f.write(0.0)
 with io.VTXWriter(msh.comm, "pbar.bp", pbar_h) as f:
     f.write(0.0)
 
+par_print("Compute error in facet solution")
 xbar = ufl.SpatialCoordinate(facet_mesh)
 e_ubar = norm_L2(msh.comm, ubar_h - u_e(xbar, ufl))
 pbar_h_avg = domain_average(facet_mesh, pbar_h)
 pbar_e_avg = domain_average(facet_mesh, p_e(xbar, ufl))
-e_pbar = norm_L2(msh.comm, (pbar_h - pbar_h_avg) - (p_e(xbar, ufl) - pbar_e_avg))
+e_pbar = norm_L2(msh.comm, (pbar_h - pbar_h_avg) -
+                 (p_e(xbar, ufl) - pbar_e_avg))
 
+par_print("Backsubstitution")
 integrals_backsub_u = {fem.IntegralType.cell: {-1: (backsub_u.address, [])}}
 u_form = Form_float64([V._cpp_object], integrals_backsub_u,
                       [ubar_h._cpp_object, pbar_h._cpp_object], [], False, None,
@@ -661,11 +692,13 @@ fem.assemble_vector(p_h.x.array, p_form, coeffs=coeffs_p)
 p_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
                        mode=PETSc.ScatterMode.REVERSE)
 
+par_print("Write cell fields")
 with io.VTXWriter(msh.comm, "u.bp", u_h) as f:
     f.write(0.0)
 with io.VTXWriter(msh.comm, "p.bp", p_h) as f:
     f.write(0.0)
 
+par_print("Compute erorrs")
 x = ufl.SpatialCoordinate(msh)
 e_u = norm_L2(msh.comm, u_h - u_e(x, ufl))
 e_div_u = norm_L2(msh.comm, div(u_h))
