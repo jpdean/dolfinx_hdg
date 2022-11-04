@@ -626,7 +626,7 @@ else:
     ksp_u.setType("preonly")
     ksp_u.getPC().setType("hypre")
     ksp_p.setType("preonly")
-    ksp_p.getPC().setType("lu")
+    ksp_p.getPC().setType("sor")
 
     # Monitor the convergence of the KSP
     opts = PETSc.Options()
