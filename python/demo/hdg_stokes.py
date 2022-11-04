@@ -39,11 +39,11 @@ def par_print(string):
 
 
 par_print("Create mesh")
-n = 4
-# msh = mesh.create_unit_square(
-#     comm, n, n, ghost_mode=mesh.GhostMode.none)
-msh = mesh.create_unit_cube(
-    comm, n, n, n, ghost_mode=mesh.GhostMode.none)
+n = 8
+msh = mesh.create_unit_square(
+    comm, n, n, ghost_mode=mesh.GhostMode.none)
+# msh = mesh.create_unit_cube(
+#     comm, n, n, n, ghost_mode=mesh.GhostMode.none)
 
 par_print("Reorder mesh")
 # Currently, permutations are not working in parallel, so reorder the
@@ -706,7 +706,22 @@ p_h_avg = domain_average(msh, p_h)
 p_e_avg = domain_average(msh, p_e(x, ufl))
 e_p = norm_L2(msh.comm, (p_h - p_h_avg) - (p_e(x, ufl) - p_e_avg))
 
+num_cells = msh.topology.index_map(tdim).size_global
+num_dofs_V = V.dofmap.index_map.size_global * V.dofmap.index_map_bs
+num_dofs_Q = Q.dofmap.index_map.size_global
+num_dofs_Vbar = Vbar.dofmap.index_map.size_global * Vbar.dofmap.index_map_bs
+num_dofs_Qbar = Qbar.dofmap.index_map.size_global
+dofs_sc = num_dofs_Vbar + num_dofs_Qbar
+total_dofs = num_dofs_V + num_dofs_Q + dofs_sc
+
 if rank == 0:
+    print(f"num_cells = {num_cells}")
+    print(f"num_dofs_V = {num_dofs_V}")
+    print(f"num_dofs_Q = {num_dofs_Q}")
+    print(f"num_dofs_Vbar = {num_dofs_Vbar}")
+    print(f"num_dofs_Qbar = {num_dofs_Qbar}")
+    print(f"dofs_sc = {dofs_sc}")
+    print(f"total_dofs = {total_dofs}")
     print(f"e_u = {e_u}")
     print(f"e_div_u = {e_div_u}")
     print(f"e_p = {e_p}")
