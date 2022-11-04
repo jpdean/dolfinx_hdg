@@ -40,10 +40,10 @@ def par_print(string):
 
 par_print("Create mesh")
 n = 8
-msh = mesh.create_unit_square(
-    comm, n, n, ghost_mode=mesh.GhostMode.none)
-# msh = mesh.create_unit_cube(
-#     comm, n, n, n, ghost_mode=mesh.GhostMode.none)
+# msh = mesh.create_unit_square(
+#     comm, n, n, ghost_mode=mesh.GhostMode.none)
+msh = mesh.create_unit_cube(
+    comm, n, n, n, ghost_mode=mesh.GhostMode.none)
 
 par_print("Reorder mesh")
 # Currently, permutations are not working in parallel, so reorder the
@@ -633,9 +633,9 @@ else:
     opts["ksp_monitor"] = None
     opts["ksp_view"] = None
     opts["fieldsplit_u_pc_hypre_type"] = "boomeramg"
-    # opts["fieldsplit_u_pc_hypre_boomeramg_cycle_type"] = "V"
-    # opts["fieldsplit_u_pc_hypre_boomeramg_grid_sweeps_all"] = 4
-    # opts['fieldsplit_u_pc_hypre_boomeramg_strong_threshold'] = 0.5
+    opts["fieldsplit_u_pc_hypre_boomeramg_cycle_type"] = "V"
+    opts["fieldsplit_u_pc_hypre_boomeramg_grid_sweeps_all"] = 1
+    opts['fieldsplit_u_pc_hypre_boomeramg_strong_threshold'] = 0.7
     # opts["help"] = None
     opts["options_left"] = None
     ksp.setFromOptions()
