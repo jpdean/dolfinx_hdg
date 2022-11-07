@@ -555,8 +555,7 @@ L = [L0, L1]
 
 par_print("Boundary conditions")
 msh_boundary_facets = mesh.locate_entities_boundary(msh, fdim, boundary)
-facet_mesh_boundary_facets = [inv_entity_map[facet]
-                              for facet in msh_boundary_facets]
+facet_mesh_boundary_facets = inv_entity_map[msh_boundary_facets]
 dofs = fem.locate_dofs_topological(Vbar, fdim, facet_mesh_boundary_facets)
 u_bc = fem.Function(Vbar)
 u_bc.interpolate(u_e)
