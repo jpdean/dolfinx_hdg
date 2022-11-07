@@ -39,11 +39,13 @@ def par_print(string):
 
 
 par_print("Create mesh")
-n = 8
-msh = mesh.create_unit_square(
-    comm, n, n, ghost_mode=mesh.GhostMode.none)
-# msh = mesh.create_unit_cube(
-#     comm, n, n, n, ghost_mode=mesh.GhostMode.none)
+# n = 10
+n = round((500000 * comm.size / 510)**(1 / 3))
+par_print(f"n = {n}")
+# msh = mesh.create_unit_square(
+#     comm, n, n, ghost_mode=mesh.GhostMode.none)
+msh = mesh.create_unit_cube(
+    comm, n, n, n, ghost_mode=mesh.GhostMode.none)
 
 par_print("Reorder mesh")
 # Currently, permutations are not working in parallel, so reorder the
@@ -658,11 +660,11 @@ pbar_h.x.array[:(len(x.array_r) - offset)] = x.array_r[offset:]
 ubar_h.x.scatter_forward()
 pbar_h.x.scatter_forward()
 
-par_print("Write to file")
-with io.VTXWriter(msh.comm, "ubar.bp", ubar_h) as f:
-    f.write(0.0)
-with io.VTXWriter(msh.comm, "pbar.bp", pbar_h) as f:
-    f.write(0.0)
+# par_print("Write to file")
+# with io.VTXWriter(msh.comm, "ubar.bp", ubar_h) as f:
+#     f.write(0.0)
+# with io.VTXWriter(msh.comm, "pbar.bp", pbar_h) as f:
+#     f.write(0.0)
 
 par_print("Compute error in facet solution")
 xbar = ufl.SpatialCoordinate(facet_mesh)
@@ -695,11 +697,11 @@ fem.assemble_vector(p_h.x.array, p_form, coeffs=coeffs_p)
 p_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
                        mode=PETSc.ScatterMode.REVERSE)
 
-par_print("Write cell fields")
-with io.VTXWriter(msh.comm, "u.bp", u_h) as f:
-    f.write(0.0)
-with io.VTXWriter(msh.comm, "p.bp", p_h) as f:
-    f.write(0.0)
+# par_print("Write cell fields")
+# with io.VTXWriter(msh.comm, "u.bp", u_h) as f:
+#     f.write(0.0)
+# with io.VTXWriter(msh.comm, "p.bp", p_h) as f:
+#     f.write(0.0)
 
 par_print("Compute erorrs")
 x = ufl.SpatialCoordinate(msh)
