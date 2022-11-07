@@ -47,8 +47,8 @@ def main():
 
     par_print("Create mesh")
     with Timer("Create mesh") as t:
-        n = 8
-        # n = round((500000 * comm.size / 60)**(1 / 3))
+        # n = 8
+        n = round((500000 * comm.size / 60)**(1 / 3))
         par_print(f"n = {n}")
         # msh = mesh.create_unit_square(
         #     comm, n, n, ghost_mode=mesh.GhostMode.none)
@@ -314,9 +314,9 @@ def main():
             opts['ksp_monitor'] = None
             opts['pc_type'] = 'hypre'
             opts['pc_hypre_type'] = 'boomeramg'
-            opts['pc_hypre_boomeramg_strong_threshold'] = 0.7
-            opts['pc_hypre_boomeramg_agg_nl'] = 4
-            opts['pc_hypre_boomeramg_agg_num_paths'] = 2
+            opts['pc_hypre_boomeramg_strong_threshold'] = 0.75
+            opts['pc_hypre_boomeramg_agg_nl'] = 1
+            # opts['pc_hypre_boomeramg_agg_num_paths'] = 2
 
             PETSc.Options().view()
 
@@ -356,9 +356,9 @@ def main():
         u.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
                              mode=PETSc.ScatterMode.REVERSE)
 
-    par_print("Write")
-    with io.VTXWriter(msh.comm, "u.bp", u) as f:
-        f.write(0.0)
+    # par_print("Write")
+    # with io.VTXWriter(msh.comm, "u.bp", u) as f:
+    #     f.write(0.0)
 
     par_print("Compute error")
     with Timer("Compute error") as t:
