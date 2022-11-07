@@ -265,8 +265,7 @@ def main():
     with Timer("BC") as t:
         msh_boundary_facets = mesh.locate_entities_boundary(
             msh, fdim, boundary)
-        facet_mesh_boundary_facets = [inv_entity_map[facet]
-                                      for facet in msh_boundary_facets]
+        facet_mesh_boundary_facets = inv_entity_map[msh_boundary_facets]
         bc_dofs = fem.locate_dofs_topological(
             Vbar, fdim, facet_mesh_boundary_facets)
         u_bc = fem.Function(Vbar)
