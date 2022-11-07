@@ -14,6 +14,7 @@ from dolfinx_hdg.assemble import assemble_matrix_block as assemble_matrix_block_
 from dolfinx_hdg.assemble import assemble_vector_block as assemble_vector_block_hdg
 from dolfinx_hdg.assemble import pack_coefficients
 import sys
+from dolfinx.common import Timer, list_timings, TimingType
 
 
 def boundary(x):
@@ -28,6 +29,7 @@ def boundary(x):
         return lrtb | fb
 
 
+total_timer = Timer("TOTAL")
 comm = MPI.COMM_WORLD
 rank = comm.rank
 
@@ -38,6 +40,7 @@ def par_print(string):
         sys.stdout.flush()
 
 
+timer = Timer("Create mesh")
 par_print("Create mesh")
 # n = 10
 n = round((500000 * comm.size / 510)**(1 / 3))
@@ -47,11 +50,13 @@ par_print(f"n = {n}")
 msh = mesh.create_unit_cube(
     comm, n, n, n, ghost_mode=mesh.GhostMode.none)
 
+timer = Timer("Reorder mesh")
 par_print("Reorder mesh")
 # Currently, permutations are not working in parallel, so reorder the
 # mesh
 reorder_mesh(msh)
 
+timer = Timer("Create facet mesh")
 par_print("Create facet mesh")
 tdim = msh.topology.dim
 fdim = tdim - 1
@@ -66,6 +71,7 @@ facets = np.arange(num_facets, dtype=np.int32)
 # necessarily the identity in parallel
 facet_mesh, entity_map = mesh.create_submesh(msh, fdim, facets)[0:2]
 
+timer = Timer("Create function spaces")
 par_print("Create function spaces")
 k = 2
 V = fem.VectorFunctionSpace(msh, ("Discontinuous Lagrange", k))
@@ -74,6 +80,7 @@ Vbar = fem.VectorFunctionSpace(
     facet_mesh, ("Discontinuous Lagrange", k))
 Qbar = fem.FunctionSpace(facet_mesh, ("Discontinuous Lagrange", k))
 
+timer = Timer("Define problem")
 par_print("Define problem")
 u = ufl.TrialFunction(V)
 v = ufl.TestFunction(V)
@@ -151,11 +158,13 @@ p_11 = h * inner(pbar, qbar) * ds_c
 
 L_0 = inner(f, v) * dx_c
 
+timer = Timer("Create inverse entity map")
 par_print("Create inverse entity map")
 inv_entity_map = np.full_like(entity_map, -1)
 for i, f in enumerate(entity_map):
     inv_entity_map[f] = i
 
+timer = Timer("JIT kernels")
 par_print("JIT kernels")
 nptype = "float64"
 ffcxtype = "double"
@@ -497,6 +506,7 @@ def backsub_p(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
 
 np.set_printoptions(suppress=True, linewidth=200, precision=3)
 
+timer = Timer("Create forms")
 par_print("Create forms")
 integrals_a00 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a00.address, [])}}
@@ -555,6 +565,7 @@ L1 = Form_float64(
 
 L = [L0, L1]
 
+timer = Timer("Boundary conditions")
 par_print("Boundary conditions")
 msh_boundary_facets = mesh.locate_entities_boundary(msh, fdim, boundary)
 facet_mesh_boundary_facets = inv_entity_map[msh_boundary_facets]
@@ -577,10 +588,12 @@ use_direct_solver = False
 if use_direct_solver:
     bcs.append(bc_p_bar)
 
+timer = Timer("Assemble matrix")
 par_print("Assemble matrix")
 A = assemble_matrix_block_hdg(a, bcs=bcs)
 A.assemble()
 
+timer = Timer("Assemble vector")
 par_print("Assemble vector")
 b = assemble_vector_block_hdg(L, a, bcs=bcs)
 
@@ -592,10 +605,12 @@ if use_direct_solver:
     ksp.getPC().setType("lu")
     ksp.getPC().setFactorSolverType("superlu_dist")
 else:
+    timer = Timer("Assemble preconditioner")
     par_print("Assemble preconditioner")
     P = assemble_matrix_block_hdg(p, bcs=bcs)
     P.assemble()
 
+    timer = Timer("Setup solver")
     # FIXME Only assemble preconditioner here
     offset_ubar = Vbar.dofmap.index_map.local_range[0] * Vbar.dofmap.index_map_bs + \
         Qbar.dofmap.index_map.local_range[0]
@@ -645,6 +660,7 @@ else:
     opts["options_left"] = None
     ksp.setFromOptions()
 
+timer = Timer("Solve")
 par_print("Solve")
 x = A.createVecRight()
 ksp.solve(b, x)
@@ -666,6 +682,7 @@ pbar_h.x.scatter_forward()
 # with io.VTXWriter(msh.comm, "pbar.bp", pbar_h) as f:
 #     f.write(0.0)
 
+timer = Timer("Compute error in facet solution")
 par_print("Compute error in facet solution")
 xbar = ufl.SpatialCoordinate(facet_mesh)
 e_ubar = norm_L2(msh.comm, ubar_h - u_e(xbar, ufl))
@@ -674,6 +691,7 @@ pbar_e_avg = domain_average(facet_mesh, p_e(xbar, ufl))
 e_pbar = norm_L2(msh.comm, (pbar_h - pbar_h_avg) -
                  (p_e(xbar, ufl) - pbar_e_avg))
 
+timer = Timer("Backsubstitution")
 par_print("Backsubstitution")
 integrals_backsub_u = {fem.IntegralType.cell: {-1: (backsub_u.address, [])}}
 u_form = Form_float64([V._cpp_object], integrals_backsub_u,
@@ -703,6 +721,7 @@ p_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
 # with io.VTXWriter(msh.comm, "p.bp", p_h) as f:
 #     f.write(0.0)
 
+timer = Timer("Compute erorrs")
 par_print("Compute erorrs")
 x = ufl.SpatialCoordinate(msh)
 e_u = norm_L2(msh.comm, u_h - u_e(x, ufl))
@@ -732,3 +751,6 @@ if rank == 0:
     print(f"e_p = {e_p}")
     print(f"e_ubar = {e_ubar}")
     print(f"e_pbar = {e_pbar}")
+
+total_timer.stop()
+list_timings(MPI.COMM_WORLD, [TimingType.wall, TimingType.user])
