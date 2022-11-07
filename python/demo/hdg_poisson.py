@@ -314,7 +314,7 @@ def main():
             opts['ksp_monitor'] = None
             opts['pc_type'] = 'hypre'
             opts['pc_hypre_type'] = 'boomeramg'
-            opts['pc_hypre_boomeramg_strong_threshold'] = 0.75
+            opts['pc_hypre_boomeramg_strong_threshold'] = 0.85
             opts['pc_hypre_boomeramg_agg_nl'] = 1
             # opts['pc_hypre_boomeramg_agg_num_paths'] = 2
 
