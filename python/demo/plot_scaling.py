@@ -10,23 +10,15 @@ for num_proc in num_procs:
     with open(f"results_{num_proc}.json", "r") as f:
         results_dict = json.load(f)
 
-    timings = results_dict["timings"]
-    data = results_dict["data"]
-
-    for key, val in timings.items():
-        try:
-            results[key].append(val)
-        except KeyError:
-            results[key] = [val]
-
-    for key, val in data.items():
-        try:
-            results[key].append(val)
-        except KeyError:
-            results[key] = [val]
+    for dict in results_dict.values():
+        for key, val in dict.items():
+            try:
+                results[key].append(val)
+            except KeyError:
+                results[key] = [val]
 
 results = pd.DataFrame(results)
-print(results)
+# print(results)
 
 x = "num_proc"
 results[[x, "its"]].plot.bar(x=x)
