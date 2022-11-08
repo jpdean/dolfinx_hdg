@@ -288,7 +288,7 @@ def main():
         entity_maps={facet_mesh: inv_entity_map})
     A = assemble_matrix_hdg(a, bcs=[bc])
     A.assemble()
-    timings["assemble_vec"] = timer.stop()
+    timings["assemble_mat"] = timer.stop()
 
     timer = print_and_time("Assemble vector")
     integrals_L = {
