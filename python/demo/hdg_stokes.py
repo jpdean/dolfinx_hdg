@@ -39,7 +39,7 @@ total_timer = Timer("TOTAL")
 comm = MPI.COMM_WORLD
 rank = comm.rank
 
-timing_dict = {}
+timings = {}
 
 def par_print(string):
     if rank == 0:
@@ -54,13 +54,13 @@ msh = mesh.create_unit_square(
     comm, n, n, ghost_mode=mesh.GhostMode.none)
 # msh = mesh.create_unit_cube(
 #     comm, n, n, n, ghost_mode=mesh.GhostMode.none)
-timing_dict["create_mesh"] = timer.stop()
+timings["create_mesh"] = timer.stop()
 
 timer = print_and_time("Reorder mesh")
 # Currently, permutations are not working in parallel, so reorder the
 # mesh
 reorder_mesh(msh)
-timing_dict["reorder_mesh"] = timer.stop()
+timings["reorder_mesh"] = timer.stop()
 
 timer = print_and_time("Create facet mesh")
 tdim = msh.topology.dim
@@ -75,7 +75,7 @@ facets = np.arange(num_facets, dtype=np.int32)
 # NOTE Despite all facets being present in the submesh, the entity map isn't
 # necessarily the identity in parallel
 facet_mesh, entity_map = mesh.create_submesh(msh, fdim, facets)[0:2]
-timing_dict["create_facet_mesh"] = timer.stop()
+timings["create_facet_mesh"] = timer.stop()
 
 timer = print_and_time("Create function spaces")
 k = 2
@@ -84,7 +84,7 @@ Q = fem.FunctionSpace(msh, ("Discontinuous Lagrange", k - 1))
 Vbar = fem.VectorFunctionSpace(
     facet_mesh, ("Discontinuous Lagrange", k))
 Qbar = fem.FunctionSpace(facet_mesh, ("Discontinuous Lagrange", k))
-timing_dict["create_function_spaces"] = timer.stop()
+timings["create_function_spaces"] = timer.stop()
 
 timer = print_and_time("Define problem")
 u = ufl.TrialFunction(V)
@@ -162,13 +162,13 @@ a_22 = gamma * inner(ubar, vbar) * ds_c
 p_11 = h * inner(pbar, qbar) * ds_c
 
 L_0 = inner(f, v) * dx_c
-timing_dict["define_problem"] = timer.stop()
+timings["define_problem"] = timer.stop()
 
 timer = print_and_time("Create inverse entity map")
 inv_entity_map = np.full_like(entity_map, -1)
 for i, f in enumerate(entity_map):
     inv_entity_map[f] = i
-timing_dict["create_inv_ent_map"] = timer.stop()
+timings["create_inv_ent_map"] = timer.stop()
 
 timer = print_and_time("JIT kernels")
 nptype = "float64"
@@ -509,7 +509,7 @@ def backsub_p(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     x += U[V_ele_space_dim:]
 
 
-timing_dict["jit_kernels"] = timer.stop()
+timings["jit_kernels"] = timer.stop()
 
 np.set_printoptions(suppress=True, linewidth=200, precision=3)
 
@@ -570,7 +570,7 @@ L1 = Form_float64(
     entity_maps={facet_mesh: inv_entity_map})
 
 L = [L0, L1]
-timing_dict["create_forms"] = timer.stop()
+timings["create_forms"] = timer.stop()
 
 timer = print_and_time("Boundary conditions")
 msh_boundary_facets = mesh.locate_entities_boundary(msh, fdim, boundary)
@@ -593,16 +593,16 @@ bcs = [bc_ubar]
 use_direct_solver = False
 if use_direct_solver:
     bcs.append(bc_p_bar)
-timing_dict["bcs"] = timer.stop()
+timings["bcs"] = timer.stop()
 
 timer = print_and_time("Assemble matrix")
 A = assemble_matrix_block_hdg(a, bcs=bcs)
 A.assemble()
-timing_dict["assemble_mat"] = timer.stop()
+timings["assemble_mat"] = timer.stop()
 
 timer = print_and_time("Assemble vector")
 b = assemble_vector_block_hdg(L, a, bcs=bcs)
-timing_dict["assemble_vec"] = timer.stop()
+timings["assemble_vec"] = timer.stop()
 
 
 if use_direct_solver:
@@ -615,7 +615,7 @@ else:
     timer = print_and_time("Assemble preconditioner")
     P = assemble_matrix_block_hdg(p, bcs=bcs)
     P.assemble()
-    timing_dict["assemble_pre"] = timer.stop()
+    timings["assemble_pre"] = timer.stop()
 
     timer = print_and_time("Setup solver")
     # FIXME Only assemble preconditioner here
@@ -666,12 +666,12 @@ else:
     # opts["help"] = None
     opts["options_left"] = None
     ksp.setFromOptions()
-    timing_dict["setup_solver"] = timer.stop()
+    timings["setup_solver"] = timer.stop()
 
 timer = print_and_time("Solve")
 x = A.createVecRight()
 ksp.solve(b, x)  # TODO Get its
-timing_dict["solve"] = timer.stop()
+timings["solve"] = timer.stop()
 
 timer = print_and_time("Recover facet solution")
 ubar_h = fem.Function(Vbar)
@@ -684,7 +684,7 @@ ubar_h.x.array[:offset] = x.array_r[:offset]
 pbar_h.x.array[:(len(x.array_r) - offset)] = x.array_r[offset:]
 ubar_h.x.scatter_forward()
 pbar_h.x.scatter_forward()
-timing_dict["recov_facet_sol"] = timer.stop()
+timings["recov_facet_sol"] = timer.stop()
 
 # par_print("Write to file")
 # with io.VTXWriter(msh.comm, "ubar.bp", ubar_h) as f:
@@ -699,7 +699,7 @@ pbar_h_avg = domain_average(facet_mesh, pbar_h)
 pbar_e_avg = domain_average(facet_mesh, p_e(xbar, ufl))
 e_pbar = norm_L2(msh.comm, (pbar_h - pbar_h_avg) -
                  (p_e(xbar, ufl) - pbar_e_avg))
-timing_dict["compute_error_facet"] = timer.stop()
+timings["compute_error_facet"] = timer.stop()
 
 timer = print_and_time("Backsubstitution")
 integrals_backsub_u = {fem.IntegralType.cell: {-1: (backsub_u.address, [])}}
@@ -723,7 +723,7 @@ p_h = fem.Function(Q)
 fem.assemble_vector(p_h.x.array, p_form, coeffs=coeffs_p)
 p_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
                        mode=PETSc.ScatterMode.REVERSE)
-timing_dict["backsub"] = timer.stop()
+timings["backsub"] = timer.stop()
 
 # par_print("Write cell fields")
 # with io.VTXWriter(msh.comm, "u.bp", u_h) as f:
@@ -738,7 +738,7 @@ e_div_u = norm_L2(msh.comm, div(u_h))
 p_h_avg = domain_average(msh, p_h)
 p_e_avg = domain_average(msh, p_e(x, ufl))
 e_p = norm_L2(msh.comm, (p_h - p_h_avg) - (p_e(x, ufl) - p_e_avg))
-timing_dict["compute_errors_cell"] = timer.stop()
+timings["compute_errors_cell"] = timer.stop()
 
 num_cells = msh.topology.index_map(tdim).size_global
 num_dofs_V = V.dofmap.index_map.size_global * V.dofmap.index_map_bs
@@ -747,6 +747,26 @@ num_dofs_Vbar = Vbar.dofmap.index_map.size_global * Vbar.dofmap.index_map_bs
 num_dofs_Qbar = Qbar.dofmap.index_map.size_global
 dofs_sc = num_dofs_Vbar + num_dofs_Qbar
 total_dofs = num_dofs_V + num_dofs_Q + dofs_sc
+
+timings["total"] = total_timer.stop()
+
+results = {}
+results["timings"] = {}
+for name, t in timings.items():
+    results["timings"][name] = comm.allreduce(t, op=MPI.MAX)
+
+results["num_cells"] = num_cells
+results["num_dofs_V"] = num_dofs_V
+results["num_dofs_Q"] = num_dofs_Q
+results["num_dofs_Vbar"] = num_dofs_Vbar
+results["num_dofs_Qbar"] = num_dofs_Qbar
+results["dofs_sc"] = dofs_sc
+results["total_dofs"] = total_dofs
+results["e_u"] = e_u
+results["e_div_u"] = e_div_u
+results["e_p"] = e_p
+results["e_ubar"] = e_ubar
+results["e_pbar"] = e_pbar
 
 if rank == 0:
     print(f"num_cells = {num_cells}")
@@ -762,8 +782,7 @@ if rank == 0:
     print(f"e_ubar = {e_ubar}")
     print(f"e_pbar = {e_pbar}")
 
-    with open("timings.json", "w") as f:
-        json.dump(timing_dict, f)
+    with open("results.json", "w") as f:
+        json.dump(results, f)
 
-total_timer.stop()
 list_timings(MPI.COMM_WORLD, [TimingType.wall, TimingType.user])
