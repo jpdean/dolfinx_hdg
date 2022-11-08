@@ -15,6 +15,7 @@ from dolfinx_hdg.assemble import assemble_vector_block as assemble_vector_block_
 from dolfinx_hdg.assemble import pack_coefficients
 import sys
 from dolfinx.common import Timer, list_timings, TimingType
+import json
 
 
 def boundary(x):
@@ -29,10 +30,16 @@ def boundary(x):
         return lrtb | fb
 
 
+def print_and_time(name):
+    par_print(name)
+    return Timer(name)
+
+
 total_timer = Timer("TOTAL")
 comm = MPI.COMM_WORLD
 rank = comm.rank
 
+timing_dict = {}
 
 def par_print(string):
     if rank == 0:
@@ -42,19 +49,21 @@ def par_print(string):
 
 timer = Timer("Create mesh")
 par_print("Create mesh")
-# n = 10
-n = round((500000 * comm.size / 510)**(1 / 3))
+n = 2
+# n = round((500000 * comm.size / 510)**(1 / 3))
 par_print(f"n = {n}")
-# msh = mesh.create_unit_square(
-#     comm, n, n, ghost_mode=mesh.GhostMode.none)
-msh = mesh.create_unit_cube(
-    comm, n, n, n, ghost_mode=mesh.GhostMode.none)
+msh = mesh.create_unit_square(
+    comm, n, n, ghost_mode=mesh.GhostMode.none)
+# msh = mesh.create_unit_cube(
+#     comm, n, n, n, ghost_mode=mesh.GhostMode.none)
+timing_dict["create_mesh"] = timer.stop()
 
 timer = Timer("Reorder mesh")
 par_print("Reorder mesh")
 # Currently, permutations are not working in parallel, so reorder the
 # mesh
 reorder_mesh(msh)
+timing_dict["reorder_mesh"] = timer.stop()
 
 timer = Timer("Create facet mesh")
 par_print("Create facet mesh")
@@ -751,6 +760,9 @@ if rank == 0:
     print(f"e_p = {e_p}")
     print(f"e_ubar = {e_ubar}")
     print(f"e_pbar = {e_pbar}")
+
+    with open("timings.json", "w") as f:
+        json.dump(timing_dict, f)
 
 total_timer.stop()
 list_timings(MPI.COMM_WORLD, [TimingType.wall, TimingType.user])
