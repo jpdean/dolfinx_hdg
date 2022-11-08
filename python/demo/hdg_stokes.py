@@ -767,6 +767,7 @@ results["e_div_u"] = e_div_u
 results["e_p"] = e_p
 results["e_ubar"] = e_ubar
 results["e_pbar"] = e_pbar
+results["its"] = ksp.its
 
 if rank == 0:
     print(f"num_cells = {num_cells}")
