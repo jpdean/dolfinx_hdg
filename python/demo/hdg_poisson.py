@@ -52,13 +52,13 @@ def main():
     comm = MPI.COMM_WORLD
 
     timings = {}
-    n = 8
+    # n = 8
+    n = round((500000 * comm.size / 60)**(1 / 3))
     timer = print_and_time(f"Create mesh (n = {n})")
-    # n = round((500000 * comm.size / 60)**(1 / 3))
-    msh = mesh.create_unit_square(
-        comm, n, n, ghost_mode=mesh.GhostMode.none)
-    # msh = mesh.create_unit_cube(
-    #     comm, n, n, n, ghost_mode=mesh.GhostMode.none)
+    # msh = mesh.create_unit_square(
+    #     comm, n, n, ghost_mode=mesh.GhostMode.none)
+    msh = mesh.create_unit_cube(
+        comm, n, n, n, ghost_mode=mesh.GhostMode.none)
     timings["create_mesh"] = timer.stop()
 
     timer = print_and_time("Reorder mesh")
