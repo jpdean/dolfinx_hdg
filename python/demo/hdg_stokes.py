@@ -750,40 +750,33 @@ total_dofs = num_dofs_V + num_dofs_Q + dofs_sc
 
 timings["total"] = total_timer.stop()
 
+data = {}
+data["num_proc"] = comm.size
+data["num_cells"] = num_cells
+data["num_dofs_V"] = num_dofs_V
+data["num_dofs_Q"] = num_dofs_Q
+data["num_dofs_Vbar"] = num_dofs_Vbar
+data["num_dofs_Qbar"] = num_dofs_Qbar
+data["dofs_sc"] = dofs_sc
+data["total_dofs"] = total_dofs
+data["e_u"] = e_u
+data["e_div_u"] = e_div_u
+data["e_p"] = e_p
+data["e_ubar"] = e_ubar
+data["e_pbar"] = e_pbar
+data["its"] = ksp.its
+
 results = {}
+results["data"] = data
 results["timings"] = {}
 for name, t in timings.items():
     results["timings"][name] = comm.allreduce(t, op=MPI.MAX)
 
-results["num_cells"] = num_cells
-results["num_dofs_V"] = num_dofs_V
-results["num_dofs_Q"] = num_dofs_Q
-results["num_dofs_Vbar"] = num_dofs_Vbar
-results["num_dofs_Qbar"] = num_dofs_Qbar
-results["dofs_sc"] = dofs_sc
-results["total_dofs"] = total_dofs
-results["e_u"] = e_u
-results["e_div_u"] = e_div_u
-results["e_p"] = e_p
-results["e_ubar"] = e_ubar
-results["e_pbar"] = e_pbar
-results["its"] = ksp.its
+for name, val in results["data"].items():
+    par_print(f"{name} = {val}")
 
 if rank == 0:
-    print(f"num_cells = {num_cells}")
-    print(f"num_dofs_V = {num_dofs_V}")
-    print(f"num_dofs_Q = {num_dofs_Q}")
-    print(f"num_dofs_Vbar = {num_dofs_Vbar}")
-    print(f"num_dofs_Qbar = {num_dofs_Qbar}")
-    print(f"dofs_sc = {dofs_sc}")
-    print(f"total_dofs = {total_dofs}")
-    print(f"e_u = {e_u}")
-    print(f"e_div_u = {e_div_u}")
-    print(f"e_p = {e_p}")
-    print(f"e_ubar = {e_ubar}")
-    print(f"e_pbar = {e_pbar}")
-
-    with open("results.json", "w") as f:
+    with open(f"results_{comm.size}.json", "w") as f:
         json.dump(results, f)
 
 list_timings(MPI.COMM_WORLD, [TimingType.wall, TimingType.user])
