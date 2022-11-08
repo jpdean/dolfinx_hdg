@@ -43,7 +43,7 @@ def par_print(string):
 timer = Timer("Create mesh")
 par_print("Create mesh")
 # n = 10
-n = round((500000 * comm.size / 510)**(1 / 3))
+n = round((250000 * comm.size / 510)**(1 / 3))
 par_print(f"n = {n}")
 # msh = mesh.create_unit_square(
 #     comm, n, n, ghost_mode=mesh.GhostMode.none)
@@ -650,12 +650,17 @@ else:
     opts["ksp_view"] = None
     opts["fieldsplit_u_pc_hypre_type"] = "boomeramg"
     opts["fieldsplit_u_pc_hypre_boomeramg_cycle_type"] = "V"
-    opts["fieldsplit_u_pc_hypre_boomeramg_grid_sweeps_all"] = 1
+    opts["fieldsplit_u_pc_hypre_boomeramg_agg_nl"] = 1
+    opts["fieldsplit_u_pc_hypre_boomeramg_agg_num_paths"] = 1
+    opts["fieldsplit_u_pc_hypre_boomeramg_coarsen_type"] = "HMIS"
+    opts["fieldsplit_u_pc_hypre_boomeramg_interp_type"] = "ext+i"
+    opts["fieldsplit_u_pc_hypre_boomeramg_P_max"] = 2
+    opts["fieldsplit_u_pc_hypre_boomeramg_truncfactor"] = 0.3
     if tdim == 2:
         opts['fieldsplit_u_pc_hypre_boomeramg_strong_threshold'] = 0.5
     else:
         assert tdim == 3
-        opts['fieldsplit_u_pc_hypre_boomeramg_strong_threshold'] = 0.7
+        opts['fieldsplit_u_pc_hypre_boomeramg_strong_threshold'] = 0.75
     # opts["help"] = None
     opts["options_left"] = None
     ksp.setFromOptions()
