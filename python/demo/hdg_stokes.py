@@ -335,11 +335,11 @@ def compute_tilde_mats(A_00, A_10, A_20, A_30):
 
 
 @numba.njit(fastmath=True)
-def compute_L_tilde(coords):
+def compute_L_tilde(coords, constants):
     b_0 = np.zeros(V_ele_space_dim, dtype=PETSc.ScalarType)
     kernel_0(ffi.from_buffer(b_0),
              ffi.from_buffer(null64),
-             ffi.from_buffer(null64),
+             ffi.from_buffer(constants),
              ffi.from_buffer(coords),
              ffi.from_buffer(null32),
              ffi.from_buffer(null8))
@@ -464,7 +464,7 @@ def tabulate_tensor_L0(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
     A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
-    L_tilde = compute_L_tilde(coords)
+    L_tilde = compute_L_tilde(coords, constants)
 
     b_local -= B_tilde @ np.linalg.solve(A_tilde, L_tilde)
 
@@ -478,7 +478,7 @@ def tabulate_tensor_L1(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
     A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
-    L_tilde = compute_L_tilde(coords)
+    L_tilde = compute_L_tilde(coords, constants)
 
     b_local -= C_tilde @ np.linalg.solve(A_tilde, L_tilde)
 
@@ -498,7 +498,7 @@ def backsub_u(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
     A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
-    L_tilde = compute_L_tilde(coords)
+    L_tilde = compute_L_tilde(coords, constants)
 
     U = np.linalg.solve(A_tilde, L_tilde - B_tilde.T @
                         u_bar - C_tilde.T @ p_bar)
@@ -520,7 +520,7 @@ def backsub_p(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
     A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
-    L_tilde = compute_L_tilde(coords)
+    L_tilde = compute_L_tilde(coords, constants)
 
     U = np.linalg.solve(A_tilde, L_tilde - B_tilde.T @
                         u_bar - C_tilde.T @ p_bar)
