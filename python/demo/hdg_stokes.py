@@ -637,12 +637,10 @@ timings["bcs"] = timer.stop()
 timer = print_and_time("Assemble matrix")
 A = assemble_matrix_block_hdg(a, bcs=bcs)
 A.assemble()
-print(A.norm())
 timings["assemble_mat"] = timer.stop()
 
 timer = print_and_time("Assemble vector")
 b = assemble_vector_block_hdg(L, a, bcs=bcs)
-print(b.norm())
 timings["assemble_vec"] = timer.stop()
 
 
