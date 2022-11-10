@@ -144,22 +144,25 @@ namespace dolfinx_hdg::fem
             //     }
             //     break;
         default:
-            for (std::int32_t cell = 0; cell < cells.size(); ++cell)
+            for (std::int32_t i = 0; i < cells.size(); ++i)
             {
                 if (codim == 0)
                 {
+                    // auto cell = fetch_cells(cells.subspan(i, 1));
+                    // assert(cell >= 0);
+                    // auto cell_coeff = i.subspan(e / estride * cstride + offset, space_dim);
                 }
                 else if (codim == 1)
                 {
                     for (std::int32_t local_facet = 0; local_facet < num_cell_facets; ++local_facet)
                     {
-                        const std::array cell_local_facet = {cell, local_facet};
+                        const std::array cell_local_facet = {cells[i], local_facet};
                         const std::int32_t facet = fetch_cells(cell_local_facet);
                         assert(facet >= 0);
 
                         // FIXME This may be incorrect for bs > 1 and more than one coefficient
                         auto cell_coeff_f = c.subspan(
-                            cell * cstride + local_facet * space_dim + offset,
+                            i * cstride + local_facet * space_dim + offset,
                             space_dim);
                         dolfinx::fem::impl::pack<T, -1>(cell_coeff_f, facet, bs, v, cell_info, dofmap, transformation);
                     }
