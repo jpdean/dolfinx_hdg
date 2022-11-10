@@ -178,54 +178,6 @@ namespace dolfinx_hdg::fem
         }
     }
 
-    /// @brief Pack coefficients of a Form for a given integral type and
-    /// domain id
-    /// @param[in] form The Form
-    /// @param[in] integral_type Type of integral
-    /// @param[in] id The id of the integration domain
-    /// @param[in] c The coefficient array
-    /// @param[in] cstride The coefficient stride
-    template <typename T>
-    void pack_coefficients(const dolfinx::fem::Form<T> &form,
-                           dolfinx::fem::IntegralType integral_type, int id,
-                           const std::span<T> &c, int cstride)
-    {
-        if (integral_type != dolfinx::fem::IntegralType::cell)
-            throw std::runtime_error(
-                "Could not pack coefficient. Integral type not supported.");
-
-        // Get form coefficient offsets and dofmaps
-        const std::vector<std::shared_ptr<const dolfinx::fem::Function<T>>>
-            &coefficients = form.coefficients();
-        const std::vector<int> offsets = form.coefficient_offsets();
-
-        std::shared_ptr<const mesh::Mesh> mesh = form.mesh();
-        assert(mesh);
-        const int num_cell_facets = mesh::cell_num_entities(
-            mesh->topology().cell_type(), mesh->topology().dim() - 1);
-
-        if (!coefficients.empty())
-        {
-            const std::vector<std::int32_t> &cells = form.cell_domains(id);
-            // Iterate over coefficients
-            for (std::size_t coeff = 0; coeff < coefficients.size(); ++coeff)
-            {
-                const int tdim = form.mesh()->topology().dim();
-                const int codim = tdim - coefficients[coeff]->function_space()->mesh()->topology().dim();
-
-                auto fetch_cell = form.function_space_to_entity_map(
-                    *coefficients[coeff]->function_space());
-                // Get cell info for coefficient (with respect to coefficient mesh)
-                // NOTE For cell coeffs, need more complicated way of dealing with offset
-                std::span<const std::uint32_t> cell_info =
-                    dolfinx::fem::impl::get_cell_orientation_info(*coefficients[coeff]);
-                dolfinx_hdg::fem::pack_coefficient_entity(c, cstride, *coefficients[coeff],
-                                                          cell_info, cells, num_cell_facets, fetch_cell,
-                                                          offsets[coeff], codim);
-            }
-        }
-    }
-
     template <typename T>
     std::vector<int> coefficient_offsets(const dolfinx::fem::Form<T> &form)
     {
@@ -262,6 +214,54 @@ namespace dolfinx_hdg::fem
         }
 
         return offsets;
+    }
+
+    /// @brief Pack coefficients of a Form for a given integral type and
+    /// domain id
+    /// @param[in] form The Form
+    /// @param[in] integral_type Type of integral
+    /// @param[in] id The id of the integration domain
+    /// @param[in] c The coefficient array
+    /// @param[in] cstride The coefficient stride
+    template <typename T>
+    void pack_coefficients(const dolfinx::fem::Form<T> &form,
+                           dolfinx::fem::IntegralType integral_type, int id,
+                           const std::span<T> &c, int cstride)
+    {
+        if (integral_type != dolfinx::fem::IntegralType::cell)
+            throw std::runtime_error(
+                "Could not pack coefficient. Integral type not supported.");
+
+        // Get form coefficient offsets and dofmaps
+        const std::vector<std::shared_ptr<const dolfinx::fem::Function<T>>>
+            &coefficients = form.coefficients();
+        const std::vector<int> offsets = coefficient_offsets(form);
+
+        std::shared_ptr<const mesh::Mesh> mesh = form.mesh();
+        assert(mesh);
+        const int num_cell_facets = mesh::cell_num_entities(
+            mesh->topology().cell_type(), mesh->topology().dim() - 1);
+
+        if (!coefficients.empty())
+        {
+            const std::vector<std::int32_t> &cells = form.cell_domains(id);
+            // Iterate over coefficients
+            for (std::size_t coeff = 0; coeff < coefficients.size(); ++coeff)
+            {
+                const int tdim = form.mesh()->topology().dim();
+                const int codim = tdim - coefficients[coeff]->function_space()->mesh()->topology().dim();
+
+                auto fetch_cell = form.function_space_to_entity_map(
+                    *coefficients[coeff]->function_space());
+                // Get cell info for coefficient (with respect to coefficient mesh)
+                // NOTE For cell coeffs, need more complicated way of dealing with offset
+                std::span<const std::uint32_t> cell_info =
+                    dolfinx::fem::impl::get_cell_orientation_info(*coefficients[coeff]);
+                dolfinx_hdg::fem::pack_coefficient_entity(c, cstride, *coefficients[coeff],
+                                                          cell_info, cells, num_cell_facets, fetch_cell,
+                                                          offsets[coeff], codim);
+            }
+        }
     }
 
     /// @brief Allocate storage for coefficients of a pair (integral_type,
