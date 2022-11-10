@@ -148,9 +148,10 @@ namespace dolfinx_hdg::fem
             {
                 if (codim == 0)
                 {
-                    // auto cell = fetch_cells(cells.subspan(i, 1));
-                    // assert(cell >= 0);
-                    // auto cell_coeff = i.subspan(e / estride * cstride + offset, space_dim);
+                    auto cell = fetch_cells(cells.subspan(i, 1));
+                    assert(cell >= 0);
+                    auto cell_coeff = c.subspan(i * cstride + offset, space_dim);
+                    dolfinx::fem::impl::pack<T, -1>(cell_coeff, cell, bs, v, cell_info, dofmap, transformation);
                 }
                 else if (codim == 1)
                 {
