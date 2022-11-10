@@ -1,4 +1,5 @@
 # TODO Generalise static condensation for EDG-HDG
+# TODO Can I timestep just the facet solution?
 
 from dolfinx import mesh, fem, jit, io
 from mpi4py import MPI
@@ -169,7 +170,7 @@ a_22 = gamma * inner(ubar, vbar) * ds_c
 
 p_11 = h * inner(pbar, qbar) * ds_c
 
-L_0 = inner(f, v) * dx_c
+L_0 = inner(f + u_n / delta_t, v) * dx_c
 timings["define_problem"] = timer.stop()
 
 timer = print_and_time("Create inverse entity map")
@@ -335,10 +336,10 @@ def compute_tilde_mats(A_00, A_10, A_20, A_30):
 
 
 @numba.njit(fastmath=True)
-def compute_L_tilde(coords, constants):
+def compute_L_tilde(coords, constants, coeffs):
     b_0 = np.zeros(V_ele_space_dim, dtype=PETSc.ScalarType)
     kernel_0(ffi.from_buffer(b_0),
-             ffi.from_buffer(null64),
+             ffi.from_buffer(coeffs),
              ffi.from_buffer(constants),
              ffi.from_buffer(coords),
              ffi.from_buffer(null32),
@@ -462,9 +463,10 @@ def tabulate_tensor_L0(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
 
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    coeffs = numba.carray(w_, V_ele_space_dim, dtype=PETSc.ScalarType)
     A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
-    L_tilde = compute_L_tilde(coords, constants)
+    L_tilde = compute_L_tilde(coords, constants, coeffs)
 
     b_local -= B_tilde @ np.linalg.solve(A_tilde, L_tilde)
 
@@ -476,9 +478,10 @@ def tabulate_tensor_L1(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
 
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    coeffs = numba.carray(w_, V_ele_space_dim, dtype=PETSc.ScalarType)
     A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
-    L_tilde = compute_L_tilde(coords, constants)
+    L_tilde = compute_L_tilde(coords, constants, coeffs)
 
     b_local -= C_tilde @ np.linalg.solve(A_tilde, L_tilde)
 
@@ -487,10 +490,15 @@ def tabulate_tensor_L1(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
 def backsub_u(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     x = numba.carray(x_, V_ele_space_dim, dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    w = numba.carray(w_, num_cell_facets * (Vbar_ele_space_dim + Qbar_ele_space_dim),
+    w = numba.carray(w_,
+                     num_cell_facets * (Vbar_ele_space_dim +
+                                        Qbar_ele_space_dim) + V_ele_space_dim,
                      dtype=PETSc.ScalarType)
-    u_bar = w[:num_cell_facets * Vbar_ele_space_dim]
-    p_bar = w[num_cell_facets * Vbar_ele_space_dim:]
+    offset_ubar = num_cell_facets * Vbar_ele_space_dim
+    offset_pbar = offset_ubar + num_cell_facets * Qbar_ele_space_dim
+    u_bar = w[:offset_ubar]
+    p_bar = w[offset_ubar:offset_pbar]
+    u_n = w[offset_pbar:]
 
     # FIXME This approach is more expensive then needed. It computes both
     # u and p and then only stores u. Would be better to write backsub
@@ -498,7 +506,7 @@ def backsub_u(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
     A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
-    L_tilde = compute_L_tilde(coords, constants)
+    L_tilde = compute_L_tilde(coords, constants, u_n)
 
     U = np.linalg.solve(A_tilde, L_tilde - B_tilde.T @
                         u_bar - C_tilde.T @ p_bar)
@@ -509,18 +517,24 @@ def backsub_u(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
 def backsub_p(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     x = numba.carray(x_, Q_ele_space_dim, dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    w = numba.carray(w_, num_cell_facets * (Vbar_ele_space_dim + Qbar_ele_space_dim),
+    w = numba.carray(w_,
+                     num_cell_facets * (Vbar_ele_space_dim +
+                                        Qbar_ele_space_dim) + V_ele_space_dim,
                      dtype=PETSc.ScalarType)
-    u_bar = w[:num_cell_facets * Vbar_ele_space_dim]
-    p_bar = w[num_cell_facets * Vbar_ele_space_dim:]
+    offset_ubar = num_cell_facets * Vbar_ele_space_dim
+    offset_pbar = offset_ubar + num_cell_facets * Qbar_ele_space_dim
+    u_bar = w[:offset_ubar]
+    p_bar = w[offset_ubar:offset_pbar]
+    u_n = w[offset_pbar:]
 
     # FIXME This approach is more expensive then needed. It computes both
     # u and p and then only stores p. Would be better to write backsub
     # expression directly for p.
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    coeffs = numba.carray(w_, V_ele_space_dim, dtype=PETSc.ScalarType)
     A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
-    L_tilde = compute_L_tilde(coords, constants)
+    L_tilde = compute_L_tilde(coords, constants, u_n)
 
     U = np.linalg.solve(A_tilde, L_tilde - B_tilde.T @
                         u_bar - C_tilde.T @ p_bar)
@@ -583,13 +597,15 @@ p = [[p00, None],
 integrals_L0 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_L0.address, [])}}
 L0 = Form_float64(
-    [Vbar._cpp_object], integrals_L0, [], [delta_t._cpp_object], False, msh,
+    [Vbar._cpp_object], integrals_L0, [u_n._cpp_object], [
+        delta_t._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_L1 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_L1.address, [])}}
 L1 = Form_float64(
-    [Qbar._cpp_object], integrals_L1, [], [delta_t._cpp_object], False, msh,
+    [Qbar._cpp_object], integrals_L1, [u_n._cpp_object], [
+        delta_t._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 L = [L0, L1]
@@ -734,7 +750,7 @@ timings["compute_error_facet"] = timer.stop()
 timer = print_and_time("Backsubstitution")
 integrals_backsub_u = {fem.IntegralType.cell: {-1: (backsub_u.address, [])}}
 u_form = Form_float64([V._cpp_object], integrals_backsub_u,
-                      [ubar_h._cpp_object, pbar_h._cpp_object], [
+                      [ubar_h._cpp_object, pbar_h._cpp_object, u_n._cpp_object], [
                           delta_t._cpp_object], False, None,
                       entity_maps={facet_mesh: inv_entity_map})
 coeffs_u = pack_coefficients(u_form)
@@ -746,7 +762,7 @@ u_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
 
 integrals_backsub_p = {fem.IntegralType.cell: {-1: (backsub_p.address, [])}}
 p_form = Form_float64([Q._cpp_object], integrals_backsub_p,
-                      [ubar_h._cpp_object, pbar_h._cpp_object], [
+                      [ubar_h._cpp_object, pbar_h._cpp_object, u_n._cpp_object], [
                           delta_t._cpp_object], False, None,
                       entity_maps={facet_mesh: inv_entity_map})
 coeffs_p = pack_coefficients(p_form)
