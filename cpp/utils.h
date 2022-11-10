@@ -213,6 +213,44 @@ namespace dolfinx_hdg::fem
         }
     }
 
+    template <typename T>
+    std::vector<int> coefficient_offsets(const dolfinx::fem::Form<T> &form)
+    {
+        std::vector<int> offsets = {0};
+        const std::vector<std::shared_ptr<const dolfinx::fem::Function<T>>>
+            &coefficients = form.coefficients();
+        std::shared_ptr<const mesh::Mesh> mesh = form.mesh();
+        assert(mesh);
+        const int tdim = mesh->topology().dim();
+        const int num_cell_facets = mesh::cell_num_entities(
+            mesh->topology().cell_type(), mesh->topology().dim() - 1);
+
+        for (const auto &coefficient : coefficients)
+        {
+            if (!coefficient)
+                throw std::runtime_error("Not all form coefficients have been set.");
+            const int codim = tdim - coefficient->function_space()->mesh()->topology().dim();
+            const int ele_space_dim =
+                coefficient->function_space()->element()->space_dimension();
+
+            if (codim == 0)
+            {
+                offsets.push_back(offsets.back() + ele_space_dim);
+            }
+            else if (codim == 1)
+            {
+                offsets.push_back(offsets.back() + ele_space_dim * num_cell_facets);
+            }
+            else
+            {
+                throw std::runtime_error(
+                    "Can't pack coefficients for codimension " + std::to_string(codim) + ".");
+            }
+        }
+
+        return offsets;
+    }
+
     /// @brief Allocate storage for coefficients of a pair (integral_type,
     /// id) from a fem::Form form
     /// @param[in] form The Form
@@ -225,28 +263,22 @@ namespace dolfinx_hdg::fem
                                  dolfinx::fem::IntegralType integral_type,
                                  int id)
     {
+        if (integral_type != dolfinx::fem::IntegralType::cell)
+            throw std::runtime_error(
+                "Could not pack coefficient. Integral type not supported.");
+
         // Get form coefficient offsets and dofmaps
-        const std::vector<std::shared_ptr<const dolfinx::fem::Function<T>>> &coefficients = form.coefficients();
-        const std::vector<int> offsets = form.coefficient_offsets();
+        const std::vector<std::shared_ptr<const dolfinx::fem::Function<T>>>
+            &coefficients = form.coefficients();
+        const std::vector<int> offsets = coefficient_offsets(form);
 
-        // TODO This needs to be generalised for non-facet space coeffs
-        std::size_t num_cells = 0;
+        int num_cells = form.cell_domains(id).size();
+
         int cstride = 0;
-        std::shared_ptr<const mesh::Mesh> mesh = form.mesh();
-        assert(mesh);
-        const int num_cell_facets = mesh::cell_num_entities(
-            mesh->topology().cell_type(), mesh->topology().dim() - 1);
         if (!coefficients.empty())
-        {
             cstride = offsets.back();
-            if (integral_type != dolfinx::fem::IntegralType::cell)
-                throw std::runtime_error(
-                    "Could not pack coefficient. Integral type not supported.");
 
-            num_cells = form.cell_domains(id).size();
-        }
-
-        return {std::vector<T>(num_cells * num_cell_facets * cstride), num_cell_facets * cstride};
+        return {std::vector<T>(num_cells * cstride), cstride};
     }
 
     /// @brief Allocate memory for packed coefficients of a Form
