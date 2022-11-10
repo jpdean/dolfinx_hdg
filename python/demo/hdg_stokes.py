@@ -1,3 +1,5 @@
+# TODO Generalise static condensation for EDG-HDG
+
 from dolfinx import mesh, fem, jit, io
 from mpi4py import MPI
 from utils import reorder_mesh, norm_L2, domain_average
@@ -41,19 +43,20 @@ rank = comm.rank
 
 timings = {}
 
+
 def par_print(string):
     if rank == 0:
         print(string)
         sys.stdout.flush()
 
 
-# n = 2
-n = round((350000 * comm.size / 510)**(1 / 3))
+n = 8
+# n = round((350000 * comm.size / 510)**(1 / 3))
 timer = print_and_time(f"Create mesh (n = {n})")
-# msh = mesh.create_unit_square(
-#     comm, n, n, ghost_mode=mesh.GhostMode.none)
-msh = mesh.create_unit_cube(
-    comm, n, n, n, ghost_mode=mesh.GhostMode.none)
+msh = mesh.create_unit_square(
+    comm, n, n, ghost_mode=mesh.GhostMode.none)
+# msh = mesh.create_unit_cube(
+#     comm, n, n, n, ghost_mode=mesh.GhostMode.none)
 timings["create_mesh"] = timer.stop()
 
 timer = print_and_time("Reorder mesh")
@@ -151,7 +154,12 @@ ds_c = ufl.Measure("ds", domain=msh)
 x = ufl.SpatialCoordinate(msh)
 f = - div(grad(u_e(x, ufl))) + grad(p_e(x, ufl))
 
-a_00 = inner(grad(u), grad(v)) * dx_c + gamma * inner(u, v) * ds_c \
+u_n = fem.Function(V)
+delta_t = fem.Constant(msh, 1e16)
+num_time_steps = 1
+
+a_00 = inner(u / delta_t, v) * ds_c \
+    + inner(grad(u), grad(v)) * dx_c + gamma * inner(u, v) * ds_c \
     - (inner(u, dot(grad(v), n))
        + inner(v, dot(grad(u), n))) * ds_c
 a_10 = - inner(q, div(u)) * dx_c
@@ -215,10 +223,11 @@ ffi = cffi.FFI()
 null64 = np.zeros(0, dtype=np.float64)
 null32 = np.zeros(0, dtype=np.int32)
 null8 = np.zeros(0, dtype=np.uint8)
+constants_size = 1  # TODO Figure out nicer way of doing this
 
 
 @numba.njit(fastmath=True)
-def compute_mats(coords):
+def compute_mats(coords, constants):
     A_00 = np.zeros((V_ele_space_dim, V_ele_space_dim),
                     dtype=PETSc.ScalarType)
     A_10 = np.zeros((Q_ele_space_dim, V_ele_space_dim),
@@ -242,7 +251,7 @@ def compute_mats(coords):
 
     kernel_00_cell(ffi.from_buffer(A_00),
                    ffi.from_buffer(null64),
-                   ffi.from_buffer(null64),
+                   ffi.from_buffer(constants),
                    ffi.from_buffer(coords),
                    ffi.from_buffer(null32),
                    ffi.from_buffer(null8))
@@ -262,7 +271,7 @@ def compute_mats(coords):
 
         kernel_00_facet(ffi.from_buffer(A_00),
                         ffi.from_buffer(null64),
-                        ffi.from_buffer(null64),
+                        ffi.from_buffer(constants),
                         ffi.from_buffer(coords),
                         ffi.from_buffer(entity_local_index),
                         ffi.from_buffer(null8))
@@ -362,7 +371,8 @@ def tabulate_tensor_a00(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Vbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
 
     A_local += A_22 - B_tilde @ np.linalg.solve(A_tilde, B_tilde.T)
@@ -374,7 +384,8 @@ def tabulate_tensor_a01(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Qbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
 
     A_local -= B_tilde @ np.linalg.solve(A_tilde, C_tilde.T)
@@ -386,7 +397,8 @@ def tabulate_tensor_a10(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Vbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
 
     A_local -= C_tilde @ np.linalg.solve(A_tilde, B_tilde.T)
@@ -398,7 +410,8 @@ def tabulate_tensor_a11(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Qbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
 
     A_local -= C_tilde @ np.linalg.solve(A_tilde, C_tilde.T)
@@ -410,7 +423,8 @@ def tabulate_tensor_p00(P_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Vbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
 
     P_local += A_22 - A_20 @ np.linalg.solve(A_00, A_20.T)
 
@@ -447,7 +461,8 @@ def tabulate_tensor_L0(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
 
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
     L_tilde = compute_L_tilde(coords)
 
@@ -460,7 +475,8 @@ def tabulate_tensor_L1(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
 
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
     L_tilde = compute_L_tilde(coords)
 
@@ -479,7 +495,8 @@ def backsub_u(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     # FIXME This approach is more expensive then needed. It computes both
     # u and p and then only stores u. Would be better to write backsub
     # expression directly for u.
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
     L_tilde = compute_L_tilde(coords)
 
@@ -500,7 +517,8 @@ def backsub_p(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     # FIXME This approach is more expensive then needed. It computes both
     # u and p and then only stores p. Would be better to write backsub
     # expression directly for p.
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
     L_tilde = compute_L_tilde(coords)
 
@@ -517,25 +535,29 @@ timer = print_and_time("Create forms")
 integrals_a00 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a00.address, [])}}
 a00 = Form_float64(
-    [Vbar._cpp_object, Vbar._cpp_object], integrals_a00, [], [], False, msh,
+    [Vbar._cpp_object, Vbar._cpp_object], integrals_a00, [], [
+        delta_t._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_a01 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a01.address, [])}}
 a01 = Form_float64(
-    [Vbar._cpp_object, Qbar._cpp_object], integrals_a01, [], [], False, msh,
+    [Vbar._cpp_object, Qbar._cpp_object], integrals_a01, [], [
+        delta_t._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_a10 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a10.address, [])}}
 a10 = Form_float64(
-    [Qbar._cpp_object, Vbar._cpp_object], integrals_a10, [], [], False, msh,
+    [Qbar._cpp_object, Vbar._cpp_object], integrals_a10, [], [
+        delta_t._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_a11 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a11.address, [])}}
 a11 = Form_float64(
-    [Qbar._cpp_object, Qbar._cpp_object], integrals_a11, [], [], False, msh,
+    [Qbar._cpp_object, Qbar._cpp_object], integrals_a11, [], [
+        delta_t._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 a = [[a00, a01],
@@ -545,7 +567,8 @@ a = [[a00, a01],
 integrals_p00 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_p00.address, [])}}
 p00 = Form_float64(
-    [Vbar._cpp_object, Vbar._cpp_object], integrals_p00, [], [], False, msh,
+    [Vbar._cpp_object, Vbar._cpp_object], integrals_p00, [], [
+        delta_t._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_p11 = {
@@ -560,13 +583,13 @@ p = [[p00, None],
 integrals_L0 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_L0.address, [])}}
 L0 = Form_float64(
-    [Vbar._cpp_object], integrals_L0, [], [], False, msh,
+    [Vbar._cpp_object], integrals_L0, [], [delta_t._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_L1 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_L1.address, [])}}
 L1 = Form_float64(
-    [Qbar._cpp_object], integrals_L1, [], [], False, msh,
+    [Qbar._cpp_object], integrals_L1, [], [delta_t._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 L = [L0, L1]
@@ -590,7 +613,7 @@ bc_p_bar = fem.dirichletbc(PETSc.ScalarType(0.0), pressure_dof, Qbar)
 
 bcs = [bc_ubar]
 
-use_direct_solver = False
+use_direct_solver = True
 if use_direct_solver:
     bcs.append(bc_p_bar)
 timings["bcs"] = timer.stop()
@@ -598,10 +621,12 @@ timings["bcs"] = timer.stop()
 timer = print_and_time("Assemble matrix")
 A = assemble_matrix_block_hdg(a, bcs=bcs)
 A.assemble()
+print(A.norm())
 timings["assemble_mat"] = timer.stop()
 
 timer = print_and_time("Assemble vector")
 b = assemble_vector_block_hdg(L, a, bcs=bcs)
+print(b.norm())
 timings["assemble_vec"] = timer.stop()
 
 
@@ -709,7 +734,8 @@ timings["compute_error_facet"] = timer.stop()
 timer = print_and_time("Backsubstitution")
 integrals_backsub_u = {fem.IntegralType.cell: {-1: (backsub_u.address, [])}}
 u_form = Form_float64([V._cpp_object], integrals_backsub_u,
-                      [ubar_h._cpp_object, pbar_h._cpp_object], [], False, None,
+                      [ubar_h._cpp_object, pbar_h._cpp_object], [
+                          delta_t._cpp_object], False, None,
                       entity_maps={facet_mesh: inv_entity_map})
 coeffs_u = pack_coefficients(u_form)
 
@@ -720,7 +746,8 @@ u_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
 
 integrals_backsub_p = {fem.IntegralType.cell: {-1: (backsub_p.address, [])}}
 p_form = Form_float64([Q._cpp_object], integrals_backsub_p,
-                      [ubar_h._cpp_object, pbar_h._cpp_object], [], False, None,
+                      [ubar_h._cpp_object, pbar_h._cpp_object], [
+                          delta_t._cpp_object], False, None,
                       entity_maps={facet_mesh: inv_entity_map})
 coeffs_p = pack_coefficients(p_form)
 
