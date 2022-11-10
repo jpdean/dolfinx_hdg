@@ -6,6 +6,7 @@ import dolfinx_hdg.cpp
 from dolfinx.fem.forms import FormMetaClass
 import collections
 import contextlib
+from dolfinx.fem.assemble import pack_constants
 
 
 def apply_lifting(b, a, bcs, x0=[], scale=1.0, constants=None, coeffs=None):
@@ -40,16 +41,11 @@ def apply_lifting_array(b, a, bcs, x0=None, scale=1.0,
 
     """
     x0 = [] if x0 is None else x0
-    # TODO Pack constants and coefficients
-    # constants = [form and _pack_constants(
-    #     form) for form in a] if constants is None else constants
-    # coeffs = [{} if form is None else _pack_coefficients(
-    #     form) for form in a] if coeffs is None else coeffs
+    constants = [form and pack_constants(
+        form) for form in a] if constants is None else constants
+    coeffs = [{} if form is None else pack_coefficients(
+        form) for form in a] if coeffs is None else coeffs
 
-    import numpy as np
-    constants = [form and [] for form in a] if constants is None else constants
-    coeffs = [{} if form is None else {(dolfinx.fem.IntegralType.cell, -1): np.zeros(
-        shape=(0, 0), dtype=np.float64)} for form in a] if coeffs is None else coeffs
     dolfinx_hdg.cpp.apply_lifting(b, a, constants, coeffs, bcs, x0, scale)
 
 
@@ -106,12 +102,8 @@ def _assemble_vector_form(L, constants=None, coeffs=None):
                                        L.function_spaces[0].dofmap.index_map_bs)
     with b.localForm() as b_local:
         # TODO Pack consts and coeffs!
-        # constants = _pack_constants(L) if constants is None else constants
-        # coeffs = _pack_coefficients(L) if coeffs is None else coeffs
-        constants = []
-        import numpy as np
-        coeffs = {(dolfinx.fem.IntegralType.cell, -1):
-                  np.zeros(shape=(0, 0), dtype=np.float64)}
+        constants = pack_constants(L) if constants is None else constants
+        coeffs = pack_coefficients(L) if coeffs is None else coeffs
         dolfinx_hdg.cpp.assemble_vector(b_local.array_w, L, constants, coeffs)
     return b
 
@@ -141,13 +133,8 @@ def _assemble_matrix_mat(A: PETSc.Mat, a, bcs=[],
     finalised, i.e. ghost values are not accumulated.
 
     """
-
-    # TODO Pack constants and coeffs
-    # constants = pack_constants(a) if constants is None else constants
-    # coeffs = pack_coefficients(a) if coeffs is None else coeffs
-    constants = []
-    import numpy as np
-    coeffs = {(dolfinx.fem.IntegralType.cell, -1)              : np.zeros(shape=(0, 0), dtype=np.float64)}
+    constants = pack_constants(a) if constants is None else constants
+    coeffs = pack_coefficients(a) if coeffs is None else coeffs
 
     dolfinx_hdg.cpp.assemble_matrix(A, a, constants, coeffs, bcs)
     if a.function_spaces[0] is a.function_spaces[1]:
@@ -183,17 +170,10 @@ def _assemble_matrix_block_mat(A: PETSc.Mat, a,
                                bcs=[], diagonal: float = 1.0,
                                constants=None, coeffs=None):
     """Assemble bilinear forms into matrix"""
-
-    # TODO Pack constants and coeffs
-    # constants = [[form and _pack_constants(form) for form in forms]
-    #              for forms in a] if constants is None else constants
-    # coeffs = [[{} if form is None else _pack_coefficients(
-    #     form) for form in forms] for forms in a] if coeffs is None else coeffs
-    constants = [[form and [] for form in forms]
+    constants = [[form and pack_constants(form) for form in forms]
                  for forms in a] if constants is None else constants
-    import numpy as np
-    coeffs = [[{} if form is None else {(dolfinx.fem.IntegralType.cell, -1): np.zeros(shape=(
-        0, 0), dtype=np.float64)} for form in forms] for forms in a] if coeffs is None else coeffs
+    coeffs = [[{} if form is None else pack_coefficients(
+        form) for form in forms] for forms in a] if coeffs is None else coeffs
 
     V = dolfinx.fem.petsc._extract_function_spaces(a)
     is_rows = dolfinx.cpp.la.petsc.create_index_sets(
@@ -278,16 +258,14 @@ def _assemble_vector_block_vec(b: PETSc.Vec, L, a, bcs=[], x0=None,
         x0_local = []
         x0_sub = [None] * len(maps)
 
-    # TODO Pack constants and coeffs properly
-    import numpy as np
-    constants_L = [form and []
-                   for form in L] if constants_L is None else constants_L
-    coeffs_L = [{} if form is None else {(dolfinx.fem.IntegralType.cell, -1): np.zeros(shape=(
-        0, 0), dtype=np.float64)} for form in L] if coeffs_L is None else coeffs_L
-    constants_a = [[form and [] for form in forms]
+    constants_L = [form and pack_constants(
+        form) for form in L] if constants_L is None else constants_L
+    coeffs_L = [{} if form is None else pack_coefficients(
+        form) for form in L] if coeffs_L is None else coeffs_L
+    constants_a = [[form and pack_constants(form) for form in forms]
                    for forms in a] if constants_a is None else constants_a
-    coeffs_a = [[{} if form is None else {(dolfinx.fem.IntegralType.cell, -1): np.zeros(shape=(
-        0, 0), dtype=np.float64)} for form in forms] for forms in a] if coeffs_a is None else coeffs_a
+    coeffs_a = [[{} if form is None else pack_coefficients(
+        form) for form in forms] for forms in a] if coeffs_a is None else coeffs_a
 
     bcs1 = dolfinx.fem.bcs_by_block(
         dolfinx.fem.forms.extract_function_spaces(a, 1), bcs)
