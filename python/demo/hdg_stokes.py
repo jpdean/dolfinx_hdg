@@ -51,7 +51,7 @@ def par_print(string):
         sys.stdout.flush()
 
 
-n = 1
+n = 8
 # n = round((350000 * comm.size / 510)**(1 / 3))
 timer = print_and_time(f"Create mesh (n = {n})")
 msh = mesh.create_unit_square(
@@ -156,10 +156,10 @@ x = ufl.SpatialCoordinate(msh)
 f = - div(grad(u_e(x, ufl))) + grad(p_e(x, ufl))
 
 u_n = fem.Function(V)
-delta_t = fem.Constant(msh, 0.01)
-num_time_steps = 10
+delta_t = fem.Constant(msh, PETSc.ScalarType(1.0e16))
+num_time_steps = 1
 
-a_00 = inner(u / delta_t, v) * ds_c \
+a_00 = inner(u / delta_t, v) * dx_c \
     + inner(grad(u), grad(v)) * dx_c + gamma * inner(u, v) * ds_c \
     - (inner(u, dot(grad(v), n))
        + inner(v, dot(grad(u), n))) * ds_c
@@ -171,7 +171,6 @@ a_22 = gamma * inner(ubar, vbar) * ds_c
 p_11 = h * inner(pbar, qbar) * ds_c
 
 L_0 = inner(f + u_n / delta_t, v) * dx_c
-# L_0 = inner(f, v) * dx_c
 timings["define_problem"] = timer.stop()
 
 timer = print_and_time("Create inverse entity map")
@@ -787,7 +786,7 @@ for n in range(num_time_steps):
     p_h.x.array[:] = 0.0
     fem.assemble_vector(p_h.x.array, p_form, coeffs=coeffs_p)
     p_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
-                        mode=PETSc.ScatterMode.REVERSE)
+                           mode=PETSc.ScatterMode.REVERSE)
     timings["backsub"] = timer.stop()
 
     u_file.write(t)
