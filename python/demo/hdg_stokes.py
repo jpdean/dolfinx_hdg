@@ -777,11 +777,13 @@ for n in range(num_time_steps):
     timer = print_and_time("Backsubstitution")
     coeffs_u = pack_coefficients(u_form)
 
+    u_n.x.array[:] = 0.0
     fem.assemble_vector(u_n.x.array, u_form, coeffs=coeffs_u)
     u_n.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
                            mode=PETSc.ScatterMode.REVERSE)
 
     coeffs_p = pack_coefficients(p_form)
+    p_h.x.array[:] = 0.0
     fem.assemble_vector(p_h.x.array, p_form, coeffs=coeffs_p)
     p_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
                         mode=PETSc.ScatterMode.REVERSE)
