@@ -51,7 +51,7 @@ def par_print(string):
         sys.stdout.flush()
 
 
-n = 8
+n = 1
 # n = round((350000 * comm.size / 510)**(1 / 3))
 timer = print_and_time(f"Create mesh (n = {n})")
 msh = mesh.create_unit_square(
@@ -156,8 +156,8 @@ x = ufl.SpatialCoordinate(msh)
 f = - div(grad(u_e(x, ufl))) + grad(p_e(x, ufl))
 
 u_n = fem.Function(V)
-delta_t = fem.Constant(msh, 1e16)
-num_time_steps = 1
+delta_t = fem.Constant(msh, 0.01)
+num_time_steps = 10
 
 a_00 = inner(u / delta_t, v) * ds_c \
     + inner(grad(u), grad(v)) * dx_c + gamma * inner(u, v) * ds_c \
@@ -171,6 +171,7 @@ a_22 = gamma * inner(ubar, vbar) * ds_c
 p_11 = h * inner(pbar, qbar) * ds_c
 
 L_0 = inner(f + u_n / delta_t, v) * dx_c
+# L_0 = inner(f, v) * dx_c
 timings["define_problem"] = timer.stop()
 
 timer = print_and_time("Create inverse entity map")
@@ -531,7 +532,6 @@ def backsub_p(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     # u and p and then only stores p. Would be better to write backsub
     # expression directly for p.
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
-    coeffs = numba.carray(w_, V_ele_space_dim, dtype=PETSc.ScalarType)
     A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
     L_tilde = compute_L_tilde(coords, constants, u_n)
@@ -715,7 +715,8 @@ else:
 
 x = A.createVecRight()
 
-u_n.name = "u"
+u_h = fem.Function(V)
+u_h.name = "u"
 p_h = fem.Function(Q)
 p_h.name = "p"
 ubar_h = fem.Function(Vbar)
@@ -723,7 +724,7 @@ ubar_h.name = "ubar"
 pbar_h = fem.Function(Qbar)
 pbar_h.name = "pbar"
 
-u_file = io.VTXWriter(msh.comm, "u.bp", [u_n._cpp_object])
+u_file = io.VTXWriter(msh.comm, "u.bp", [u_h._cpp_object])
 p_file = io.VTXWriter(msh.comm, "p.bp", [p_h._cpp_object])
 ubar_file = io.VTXWriter(msh.comm, "ubar.bp", [ubar_h._cpp_object])
 pbar_file = io.VTXWriter(msh.comm, "pbar.bp", [pbar_h._cpp_object])
@@ -777,9 +778,9 @@ for n in range(num_time_steps):
     timer = print_and_time("Backsubstitution")
     coeffs_u = pack_coefficients(u_form)
 
-    u_n.x.array[:] = 0.0
-    fem.assemble_vector(u_n.x.array, u_form, coeffs=coeffs_u)
-    u_n.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
+    u_h.x.array[:] = 0.0
+    fem.assemble_vector(u_h.x.array, u_form, coeffs=coeffs_u)
+    u_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
                            mode=PETSc.ScatterMode.REVERSE)
 
     coeffs_p = pack_coefficients(p_form)
@@ -793,6 +794,8 @@ for n in range(num_time_steps):
     p_file.write(t)
     ubar_file.write(t)
     pbar_file.write(t)
+
+    u_n.x.array[:] = u_h.x.array
 
 # # par_print("Write cell fields")
 # # with io.VTXWriter(msh.comm, "u.bp", u_h) as f:
@@ -811,8 +814,8 @@ timings["compute_error_facet"] = timer.stop()
 
 timer = print_and_time("Compute erorrs")
 x = ufl.SpatialCoordinate(msh)
-e_u = norm_L2(msh.comm, u_n - u_e(x, ufl))
-e_div_u = norm_L2(msh.comm, div(u_n))
+e_u = norm_L2(msh.comm, u_h - u_e(x, ufl))
+e_div_u = norm_L2(msh.comm, div(u_h))
 p_h_avg = domain_average(msh, p_h)
 p_e_avg = domain_average(msh, p_e(x, ufl))
 e_p = norm_L2(msh.comm, (p_h - p_h_avg) - (p_e(x, ufl) - p_e_avg))
