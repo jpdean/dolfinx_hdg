@@ -795,12 +795,6 @@ for n in range(num_time_steps):
 
     u_n.x.array[:] = u_h.x.array
 
-# # par_print("Write cell fields")
-# # with io.VTXWriter(msh.comm, "u.bp", u_h) as f:
-# #     f.write(0.0)
-# # with io.VTXWriter(msh.comm, "p.bp", p_h) as f:
-# #     f.write(0.0)
-
 timer = print_and_time("Compute error in facet solution")
 xbar = ufl.SpatialCoordinate(facet_mesh)
 e_ubar = norm_L2(msh.comm, ubar_h - u_e(xbar, ufl))
