@@ -638,10 +638,7 @@ A = assemble_matrix_block_hdg(a, bcs=bcs)
 A.assemble()
 timings["assemble_mat"] = timer.stop()
 
-timer = print_and_time("Assemble vector")
-# b = assemble_vector_block_hdg(L, a, bcs=bcs)
 b = fem.petsc.create_vector_block(L)
-timings["assemble_vec"] = timer.stop()
 
 
 if use_direct_solver:
@@ -723,6 +720,7 @@ ubar_h.name = "ubar"
 pbar_h = fem.Function(Qbar)
 pbar_h.name = "pbar"
 
+timer = print_and_time("Write initial condition to file")
 u_file = io.VTXWriter(msh.comm, "u.bp", [u_h._cpp_object])
 p_file = io.VTXWriter(msh.comm, "p.bp", [p_h._cpp_object])
 ubar_file = io.VTXWriter(msh.comm, "ubar.bp", [ubar_h._cpp_object])
@@ -732,6 +730,7 @@ u_file.write(0.0)
 p_file.write(0.0)
 ubar_file.write(0.0)
 pbar_file.write(0.0)
+timings["write_init"] = timer.stop()
 
 integrals_backsub_u = {fem.IntegralType.cell: {-1: (backsub_u.address, [])}}
 u_form = Form_float64([V._cpp_object], integrals_backsub_u,
@@ -745,38 +744,36 @@ p_form = Form_float64([Q._cpp_object], integrals_backsub_p,
                           delta_t._cpp_object], False, None,
                       entity_maps={facet_mesh: inv_entity_map})
 
-p_h = fem.Function(Q)
-
 t = 0.0
+timings["assemble_vec"] = 0.0
+timings["solve"] = 0.0
+timings["recov_facet_sol"] = 0.0
+timings["backsub"] = 0.0
+timings["write"] = 0.0
 for n in range(num_time_steps):
     t += delta_t.value
+    par_print(f"\nt = {t}")
 
+    timer = print_and_time("Assemble vector")
     with b.localForm() as b_loc:
         b_loc.set(0)
     assemble_vector_block_hdg(b, L, a, bcs=bcs)
+    timings["assemble_vec"] += timer.stop()
 
     timer = print_and_time("Solve")
     ksp.solve(b, x)
-    timings["solve"] = timer.stop()
+    timings["solve"] += timer.stop()
 
     timer = print_and_time("Recover facet solution")
-
     offset = Vbar.dofmap.index_map.size_local * Vbar.dofmap.index_map_bs
     ubar_h.x.array[:offset] = x.array_r[:offset]
     pbar_h.x.array[:(len(x.array_r) - offset)] = x.array_r[offset:]
     ubar_h.x.scatter_forward()
     pbar_h.x.scatter_forward()
-    timings["recov_facet_sol"] = timer.stop()
-
-# # par_print("Write to file")
-# # with io.VTXWriter(msh.comm, "ubar.bp", ubar_h) as f:
-# #     f.write(0.0)
-# # with io.VTXWriter(msh.comm, "pbar.bp", pbar_h) as f:
-# #     f.write(0.0)
+    timings["recov_facet_sol"] += timer.stop()
 
     timer = print_and_time("Backsubstitution")
     coeffs_u = pack_coefficients(u_form)
-
     u_h.x.array[:] = 0.0
     fem.assemble_vector(u_h.x.array, u_form, coeffs=coeffs_u)
     u_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
@@ -787,12 +784,14 @@ for n in range(num_time_steps):
     fem.assemble_vector(p_h.x.array, p_form, coeffs=coeffs_p)
     p_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
                            mode=PETSc.ScatterMode.REVERSE)
-    timings["backsub"] = timer.stop()
+    timings["backsub"] += timer.stop()
 
+    timer = print_and_time("Write to file")
     u_file.write(t)
     p_file.write(t)
     ubar_file.write(t)
     pbar_file.write(t)
+    timings["write"] += timer.stop()
 
     u_n.x.array[:] = u_h.x.array
 
