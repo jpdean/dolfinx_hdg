@@ -1,3 +1,6 @@
+# TODO Generalise static condensation for EDG-HDG
+# TODO Can I timestep just the facet solution?
+
 from dolfinx import mesh, fem, jit, io
 from mpi4py import MPI
 from utils import reorder_mesh, norm_L2, domain_average
@@ -41,19 +44,20 @@ rank = comm.rank
 
 timings = {}
 
+
 def par_print(string):
     if rank == 0:
         print(string)
         sys.stdout.flush()
 
 
-# n = 2
-n = round((350000 * comm.size / 510)**(1 / 3))
+n = 8
+# n = round((350000 * comm.size / 510)**(1 / 3))
 timer = print_and_time(f"Create mesh (n = {n})")
-# msh = mesh.create_unit_square(
-#     comm, n, n, ghost_mode=mesh.GhostMode.none)
-msh = mesh.create_unit_cube(
-    comm, n, n, n, ghost_mode=mesh.GhostMode.none)
+msh = mesh.create_unit_square(
+    comm, n, n, ghost_mode=mesh.GhostMode.none)
+# msh = mesh.create_unit_cube(
+#     comm, n, n, n, ghost_mode=mesh.GhostMode.none)
 timings["create_mesh"] = timer.stop()
 
 timer = print_and_time("Reorder mesh")
@@ -151,7 +155,12 @@ ds_c = ufl.Measure("ds", domain=msh)
 x = ufl.SpatialCoordinate(msh)
 f = - div(grad(u_e(x, ufl))) + grad(p_e(x, ufl))
 
-a_00 = inner(grad(u), grad(v)) * dx_c + gamma * inner(u, v) * ds_c \
+u_n = fem.Function(V)
+delta_t = fem.Constant(msh, PETSc.ScalarType(1.0e16))
+num_time_steps = 1
+
+a_00 = inner(u / delta_t, v) * dx_c \
+    + inner(grad(u), grad(v)) * dx_c + gamma * inner(u, v) * ds_c \
     - (inner(u, dot(grad(v), n))
        + inner(v, dot(grad(u), n))) * ds_c
 a_10 = - inner(q, div(u)) * dx_c
@@ -161,7 +170,7 @@ a_22 = gamma * inner(ubar, vbar) * ds_c
 
 p_11 = h * inner(pbar, qbar) * ds_c
 
-L_0 = inner(f, v) * dx_c
+L_0 = inner(f + u_n / delta_t, v) * dx_c
 timings["define_problem"] = timer.stop()
 
 timer = print_and_time("Create inverse entity map")
@@ -215,10 +224,11 @@ ffi = cffi.FFI()
 null64 = np.zeros(0, dtype=np.float64)
 null32 = np.zeros(0, dtype=np.int32)
 null8 = np.zeros(0, dtype=np.uint8)
+constants_size = 1  # TODO Figure out nicer way of doing this
 
 
 @numba.njit(fastmath=True)
-def compute_mats(coords):
+def compute_mats(coords, constants):
     A_00 = np.zeros((V_ele_space_dim, V_ele_space_dim),
                     dtype=PETSc.ScalarType)
     A_10 = np.zeros((Q_ele_space_dim, V_ele_space_dim),
@@ -242,7 +252,7 @@ def compute_mats(coords):
 
     kernel_00_cell(ffi.from_buffer(A_00),
                    ffi.from_buffer(null64),
-                   ffi.from_buffer(null64),
+                   ffi.from_buffer(constants),
                    ffi.from_buffer(coords),
                    ffi.from_buffer(null32),
                    ffi.from_buffer(null8))
@@ -262,7 +272,7 @@ def compute_mats(coords):
 
         kernel_00_facet(ffi.from_buffer(A_00),
                         ffi.from_buffer(null64),
-                        ffi.from_buffer(null64),
+                        ffi.from_buffer(constants),
                         ffi.from_buffer(coords),
                         ffi.from_buffer(entity_local_index),
                         ffi.from_buffer(null8))
@@ -326,11 +336,11 @@ def compute_tilde_mats(A_00, A_10, A_20, A_30):
 
 
 @numba.njit(fastmath=True)
-def compute_L_tilde(coords):
+def compute_L_tilde(coords, constants, coeffs):
     b_0 = np.zeros(V_ele_space_dim, dtype=PETSc.ScalarType)
     kernel_0(ffi.from_buffer(b_0),
-             ffi.from_buffer(null64),
-             ffi.from_buffer(null64),
+             ffi.from_buffer(coeffs),
+             ffi.from_buffer(constants),
              ffi.from_buffer(coords),
              ffi.from_buffer(null32),
              ffi.from_buffer(null8))
@@ -362,7 +372,8 @@ def tabulate_tensor_a00(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Vbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
 
     A_local += A_22 - B_tilde @ np.linalg.solve(A_tilde, B_tilde.T)
@@ -374,7 +385,8 @@ def tabulate_tensor_a01(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Qbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
 
     A_local -= B_tilde @ np.linalg.solve(A_tilde, C_tilde.T)
@@ -386,7 +398,8 @@ def tabulate_tensor_a10(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Vbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
 
     A_local -= C_tilde @ np.linalg.solve(A_tilde, B_tilde.T)
@@ -398,7 +411,8 @@ def tabulate_tensor_a11(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Qbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
 
     A_local -= C_tilde @ np.linalg.solve(A_tilde, C_tilde.T)
@@ -410,7 +424,8 @@ def tabulate_tensor_p00(P_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Vbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
 
     P_local += A_22 - A_20 @ np.linalg.solve(A_00, A_20.T)
 
@@ -447,9 +462,11 @@ def tabulate_tensor_L0(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
 
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    coeffs = numba.carray(w_, V_ele_space_dim, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
-    L_tilde = compute_L_tilde(coords)
+    L_tilde = compute_L_tilde(coords, constants, coeffs)
 
     b_local -= B_tilde @ np.linalg.solve(A_tilde, L_tilde)
 
@@ -460,9 +477,11 @@ def tabulate_tensor_L1(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
 
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    coeffs = numba.carray(w_, V_ele_space_dim, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
-    L_tilde = compute_L_tilde(coords)
+    L_tilde = compute_L_tilde(coords, constants, coeffs)
 
     b_local -= C_tilde @ np.linalg.solve(A_tilde, L_tilde)
 
@@ -471,17 +490,23 @@ def tabulate_tensor_L1(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
 def backsub_u(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     x = numba.carray(x_, V_ele_space_dim, dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    w = numba.carray(w_, num_cell_facets * (Vbar_ele_space_dim + Qbar_ele_space_dim),
+    w = numba.carray(w_,
+                     num_cell_facets * (Vbar_ele_space_dim +
+                                        Qbar_ele_space_dim) + V_ele_space_dim,
                      dtype=PETSc.ScalarType)
-    u_bar = w[:num_cell_facets * Vbar_ele_space_dim]
-    p_bar = w[num_cell_facets * Vbar_ele_space_dim:]
+    offset_ubar = num_cell_facets * Vbar_ele_space_dim
+    offset_pbar = offset_ubar + num_cell_facets * Qbar_ele_space_dim
+    u_bar = w[:offset_ubar]
+    p_bar = w[offset_ubar:offset_pbar]
+    u_n = w[offset_pbar:]
 
     # FIXME This approach is more expensive then needed. It computes both
     # u and p and then only stores u. Would be better to write backsub
     # expression directly for u.
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
-    L_tilde = compute_L_tilde(coords)
+    L_tilde = compute_L_tilde(coords, constants, u_n)
 
     U = np.linalg.solve(A_tilde, L_tilde - B_tilde.T @
                         u_bar - C_tilde.T @ p_bar)
@@ -492,17 +517,23 @@ def backsub_u(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
 def backsub_p(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     x = numba.carray(x_, Q_ele_space_dim, dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
-    w = numba.carray(w_, num_cell_facets * (Vbar_ele_space_dim + Qbar_ele_space_dim),
+    w = numba.carray(w_,
+                     num_cell_facets * (Vbar_ele_space_dim +
+                                        Qbar_ele_space_dim) + V_ele_space_dim,
                      dtype=PETSc.ScalarType)
-    u_bar = w[:num_cell_facets * Vbar_ele_space_dim]
-    p_bar = w[num_cell_facets * Vbar_ele_space_dim:]
+    offset_ubar = num_cell_facets * Vbar_ele_space_dim
+    offset_pbar = offset_ubar + num_cell_facets * Qbar_ele_space_dim
+    u_bar = w[:offset_ubar]
+    p_bar = w[offset_ubar:offset_pbar]
+    u_n = w[offset_pbar:]
 
     # FIXME This approach is more expensive then needed. It computes both
     # u and p and then only stores p. Would be better to write backsub
     # expression directly for p.
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords)
+    constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
+    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
-    L_tilde = compute_L_tilde(coords)
+    L_tilde = compute_L_tilde(coords, constants, u_n)
 
     U = np.linalg.solve(A_tilde, L_tilde - B_tilde.T @
                         u_bar - C_tilde.T @ p_bar)
@@ -517,25 +548,29 @@ timer = print_and_time("Create forms")
 integrals_a00 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a00.address, [])}}
 a00 = Form_float64(
-    [Vbar._cpp_object, Vbar._cpp_object], integrals_a00, [], [], False, msh,
+    [Vbar._cpp_object, Vbar._cpp_object], integrals_a00, [], [
+        delta_t._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_a01 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a01.address, [])}}
 a01 = Form_float64(
-    [Vbar._cpp_object, Qbar._cpp_object], integrals_a01, [], [], False, msh,
+    [Vbar._cpp_object, Qbar._cpp_object], integrals_a01, [], [
+        delta_t._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_a10 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a10.address, [])}}
 a10 = Form_float64(
-    [Qbar._cpp_object, Vbar._cpp_object], integrals_a10, [], [], False, msh,
+    [Qbar._cpp_object, Vbar._cpp_object], integrals_a10, [], [
+        delta_t._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_a11 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a11.address, [])}}
 a11 = Form_float64(
-    [Qbar._cpp_object, Qbar._cpp_object], integrals_a11, [], [], False, msh,
+    [Qbar._cpp_object, Qbar._cpp_object], integrals_a11, [], [
+        delta_t._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 a = [[a00, a01],
@@ -545,7 +580,8 @@ a = [[a00, a01],
 integrals_p00 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_p00.address, [])}}
 p00 = Form_float64(
-    [Vbar._cpp_object, Vbar._cpp_object], integrals_p00, [], [], False, msh,
+    [Vbar._cpp_object, Vbar._cpp_object], integrals_p00, [], [
+        delta_t._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_p11 = {
@@ -560,13 +596,15 @@ p = [[p00, None],
 integrals_L0 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_L0.address, [])}}
 L0 = Form_float64(
-    [Vbar._cpp_object], integrals_L0, [], [], False, msh,
+    [Vbar._cpp_object], integrals_L0, [u_n._cpp_object], [
+        delta_t._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_L1 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_L1.address, [])}}
 L1 = Form_float64(
-    [Qbar._cpp_object], integrals_L1, [], [], False, msh,
+    [Qbar._cpp_object], integrals_L1, [u_n._cpp_object], [
+        delta_t._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 L = [L0, L1]
@@ -600,9 +638,7 @@ A = assemble_matrix_block_hdg(a, bcs=bcs)
 A.assemble()
 timings["assemble_mat"] = timer.stop()
 
-timer = print_and_time("Assemble vector")
-b = assemble_vector_block_hdg(L, a, bcs=bcs)
-timings["assemble_vec"] = timer.stop()
+b = fem.petsc.create_vector_block(L)
 
 
 if use_direct_solver:
@@ -673,29 +709,97 @@ else:
     ksp.setFromOptions()
     timings["setup_solver"] = timer.stop()
 
-timer = print_and_time("Solve")
 x = A.createVecRight()
-ksp.solve(b, x)  # TODO Get its
-timings["solve"] = timer.stop()
 
-timer = print_and_time("Recover facet solution")
+u_h = fem.Function(V)
+u_h.name = "u"
+p_h = fem.Function(Q)
+p_h.name = "p"
 ubar_h = fem.Function(Vbar)
 ubar_h.name = "ubar"
 pbar_h = fem.Function(Qbar)
 pbar_h.name = "pbar"
 
-offset = Vbar.dofmap.index_map.size_local * Vbar.dofmap.index_map_bs
-ubar_h.x.array[:offset] = x.array_r[:offset]
-pbar_h.x.array[:(len(x.array_r) - offset)] = x.array_r[offset:]
-ubar_h.x.scatter_forward()
-pbar_h.x.scatter_forward()
-timings["recov_facet_sol"] = timer.stop()
+timer = print_and_time("Write initial condition to file")
+u_file = io.VTXWriter(msh.comm, "u.bp", [u_h._cpp_object])
+p_file = io.VTXWriter(msh.comm, "p.bp", [p_h._cpp_object])
+ubar_file = io.VTXWriter(msh.comm, "ubar.bp", [ubar_h._cpp_object])
+pbar_file = io.VTXWriter(msh.comm, "pbar.bp", [pbar_h._cpp_object])
 
-# par_print("Write to file")
-# with io.VTXWriter(msh.comm, "ubar.bp", ubar_h) as f:
-#     f.write(0.0)
-# with io.VTXWriter(msh.comm, "pbar.bp", pbar_h) as f:
-#     f.write(0.0)
+u_file.write(0.0)
+p_file.write(0.0)
+ubar_file.write(0.0)
+pbar_file.write(0.0)
+timings["write_init"] = timer.stop()
+
+integrals_backsub_u = {fem.IntegralType.cell: {-1: (backsub_u.address, [])}}
+u_form = Form_float64([V._cpp_object], integrals_backsub_u,
+                      [ubar_h._cpp_object, pbar_h._cpp_object, u_n._cpp_object], [
+    delta_t._cpp_object], False, None,
+    entity_maps={facet_mesh: inv_entity_map})
+
+integrals_backsub_p = {fem.IntegralType.cell: {-1: (backsub_p.address, [])}}
+p_form = Form_float64([Q._cpp_object], integrals_backsub_p,
+                      [ubar_h._cpp_object, pbar_h._cpp_object, u_n._cpp_object], [
+                          delta_t._cpp_object], False, None,
+                      entity_maps={facet_mesh: inv_entity_map})
+
+t = 0.0
+timings["assemble_vec"] = 0.0
+timings["solve"] = 0.0
+timings["recov_facet_sol"] = 0.0
+timings["backsub"] = 0.0
+timings["write"] = 0.0
+for n in range(num_time_steps):
+    t += delta_t.value
+    par_print(f"\nt = {t}")
+
+    timer = print_and_time("Assemble vector")
+    with b.localForm() as b_loc:
+        b_loc.set(0)
+    assemble_vector_block_hdg(b, L, a, bcs=bcs)
+    timings["assemble_vec"] += timer.stop()
+
+    timer = print_and_time("Solve")
+    ksp.solve(b, x)
+    timings["solve"] += timer.stop()
+
+    timer = print_and_time("Recover facet solution")
+    offset = Vbar.dofmap.index_map.size_local * Vbar.dofmap.index_map_bs
+    ubar_h.x.array[:offset] = x.array_r[:offset]
+    pbar_h.x.array[:(len(x.array_r) - offset)] = x.array_r[offset:]
+    ubar_h.x.scatter_forward()
+    pbar_h.x.scatter_forward()
+    timings["recov_facet_sol"] += timer.stop()
+
+    timer = print_and_time("Backsubstitution")
+    coeffs_u = pack_coefficients(u_form)
+    u_h.x.array[:] = 0.0
+    fem.assemble_vector(u_h.x.array, u_form, coeffs=coeffs_u)
+    u_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
+                           mode=PETSc.ScatterMode.REVERSE)
+
+    coeffs_p = pack_coefficients(p_form)
+    p_h.x.array[:] = 0.0
+    fem.assemble_vector(p_h.x.array, p_form, coeffs=coeffs_p)
+    p_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
+                           mode=PETSc.ScatterMode.REVERSE)
+    timings["backsub"] += timer.stop()
+
+    timer = print_and_time("Write to file")
+    u_file.write(t)
+    p_file.write(t)
+    ubar_file.write(t)
+    pbar_file.write(t)
+    timings["write"] += timer.stop()
+
+    u_n.x.array[:] = u_h.x.array
+
+# # par_print("Write cell fields")
+# # with io.VTXWriter(msh.comm, "u.bp", u_h) as f:
+# #     f.write(0.0)
+# # with io.VTXWriter(msh.comm, "p.bp", p_h) as f:
+# #     f.write(0.0)
 
 timer = print_and_time("Compute error in facet solution")
 xbar = ufl.SpatialCoordinate(facet_mesh)
@@ -705,36 +809,6 @@ pbar_e_avg = domain_average(facet_mesh, p_e(xbar, ufl))
 e_pbar = norm_L2(msh.comm, (pbar_h - pbar_h_avg) -
                  (p_e(xbar, ufl) - pbar_e_avg))
 timings["compute_error_facet"] = timer.stop()
-
-timer = print_and_time("Backsubstitution")
-integrals_backsub_u = {fem.IntegralType.cell: {-1: (backsub_u.address, [])}}
-u_form = Form_float64([V._cpp_object], integrals_backsub_u,
-                      [ubar_h._cpp_object, pbar_h._cpp_object], [], False, None,
-                      entity_maps={facet_mesh: inv_entity_map})
-coeffs_u = pack_coefficients(u_form)
-
-u_h = fem.Function(V)
-fem.assemble_vector(u_h.x.array, u_form, coeffs=coeffs_u)
-u_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
-                       mode=PETSc.ScatterMode.REVERSE)
-
-integrals_backsub_p = {fem.IntegralType.cell: {-1: (backsub_p.address, [])}}
-p_form = Form_float64([Q._cpp_object], integrals_backsub_p,
-                      [ubar_h._cpp_object, pbar_h._cpp_object], [], False, None,
-                      entity_maps={facet_mesh: inv_entity_map})
-coeffs_p = pack_coefficients(p_form)
-
-p_h = fem.Function(Q)
-fem.assemble_vector(p_h.x.array, p_form, coeffs=coeffs_p)
-p_h.vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
-                       mode=PETSc.ScatterMode.REVERSE)
-timings["backsub"] = timer.stop()
-
-# par_print("Write cell fields")
-# with io.VTXWriter(msh.comm, "u.bp", u_h) as f:
-#     f.write(0.0)
-# with io.VTXWriter(msh.comm, "p.bp", p_h) as f:
-#     f.write(0.0)
 
 timer = print_and_time("Compute erorrs")
 x = ufl.SpatialCoordinate(msh)
