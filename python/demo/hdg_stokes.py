@@ -57,7 +57,7 @@ def par_print(string):
 
 
 solver_type = SolverType.STOKES
-n = 8
+n = 2
 nu = 1.0
 k = 2
 num_time_steps = 1
@@ -178,6 +178,8 @@ a_00 = inner(u / delta_t, v) * dx_c \
 a_10 = - inner(q, div(u)) * dx_c
 a_20 = nu * (inner(vbar, dot(grad(u), n)) * ds_c
              - gamma * inner(vbar, u) * ds_c)
+a_02 = nu * (inner(ubar, dot(grad(v), n)) * ds_c
+             - gamma * inner(ubar, v) * ds_c)
 a_30 = inner(dot(u, n), qbar) * ds_c
 a_22 = nu * gamma * inner(ubar, vbar) * ds_c
 
@@ -210,6 +212,10 @@ kernel_10 = getattr(ufcx_form_10.integrals(IntegralType.cell)[0],
 ufcx_form_20, _, _ = jit.ffcx_jit(
     msh.comm, a_20, form_compiler_options={"scalar_type": ffcxtype})
 kernel_20 = getattr(ufcx_form_20.integrals(IntegralType.exterior_facet)[0],
+                    f"tabulate_tensor_{nptype}")
+ufcx_form_02, _, _ = jit.ffcx_jit(
+    msh.comm, a_02, form_compiler_options={"scalar_type": ffcxtype})
+kernel_02 = getattr(ufcx_form_02.integrals(IntegralType.exterior_facet)[0],
                     f"tabulate_tensor_{nptype}")
 ufcx_form_30, _, _ = jit.ffcx_jit(
     msh.comm, a_30, form_compiler_options={"scalar_type": ffcxtype})
@@ -252,6 +258,11 @@ def compute_mats(coords, constants):
                     dtype=PETSc.ScalarType)
     A_20_f = np.zeros((Vbar_ele_space_dim, V_ele_space_dim),
                       dtype=PETSc.ScalarType)
+    A_02 = np.zeros((V_ele_space_dim,
+                     num_cell_facets * Vbar_ele_space_dim),
+                    dtype=PETSc.ScalarType)
+    A_02_f = np.zeros((V_ele_space_dim, Vbar_ele_space_dim),
+                      dtype=PETSc.ScalarType)
     A_30 = np.zeros((num_cell_facets * Qbar_ele_space_dim,
                      V_ele_space_dim),
                     dtype=PETSc.ScalarType)
@@ -281,6 +292,7 @@ def compute_mats(coords, constants):
     for local_f in range(num_cell_facets):
         entity_local_index[0] = local_f
         A_20_f.fill(0.0)
+        A_02_f.fill(0.0)
         A_30_f.fill(0.0)
         A22_f.fill(0.0)
 
@@ -292,6 +304,13 @@ def compute_mats(coords, constants):
                         ffi.from_buffer(null8))
 
         kernel_20(ffi.from_buffer(A_20_f),
+                  ffi.from_buffer(null64),
+                  ffi.from_buffer(nu),
+                  ffi.from_buffer(coords),
+                  ffi.from_buffer(entity_local_index),
+                  ffi.from_buffer(null8))
+
+        kernel_02(ffi.from_buffer(A_02_f),
                   ffi.from_buffer(null64),
                   ffi.from_buffer(nu),
                   ffi.from_buffer(coords),
@@ -316,6 +335,10 @@ def compute_mats(coords, constants):
         end_row_20 = start_row_20 + Vbar_ele_space_dim
         A_20[start_row_20:end_row_20, :] += A_20_f[:, :]
 
+        start_col_02 = local_f * Vbar_ele_space_dim
+        end_col_02 = start_col_02 + Vbar_ele_space_dim
+        A_02[:, start_col_02:end_col_02] += A_02_f[:, :]
+
         start_row_30 = local_f * Qbar_ele_space_dim
         end_row_30 = start_row_30 + Qbar_ele_space_dim
         A_30[start_row_30:end_row_30, :] += A_30_f[:, :]
@@ -323,7 +346,7 @@ def compute_mats(coords, constants):
         start = local_f * Vbar_ele_space_dim
         end = start + Vbar_ele_space_dim
         A_22[start:end, start:end] += A22_f[:, :]
-    return A_00, A_10, A_20, A_30, A_22
+    return A_00, A_10, A_20, A_02, A_30, A_22
 
 
 @numba.njit(fastmath=True)
@@ -387,7 +410,7 @@ def tabulate_tensor_a00(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
 
     A_local += A_22 - B_tilde @ np.linalg.solve(A_tilde, B_tilde.T)
@@ -400,7 +423,7 @@ def tabulate_tensor_a01(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
 
     A_local -= B_tilde @ np.linalg.solve(A_tilde, C_tilde.T)
@@ -413,7 +436,7 @@ def tabulate_tensor_a10(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
 
     A_local -= C_tilde @ np.linalg.solve(A_tilde, B_tilde.T)
@@ -426,7 +449,7 @@ def tabulate_tensor_a11(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
 
     A_local -= C_tilde @ np.linalg.solve(A_tilde, C_tilde.T)
@@ -439,7 +462,7 @@ def tabulate_tensor_p00(P_, w_, c_, coords_, entity_local_index, permutation=ffi
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
 
     P_local += A_22 - A_20 @ np.linalg.solve(A_00, A_20.T)
 
@@ -479,7 +502,7 @@ def tabulate_tensor_L0(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
 
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
     coeffs = numba.carray(w_, V_ele_space_dim, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
     L_tilde = compute_L_tilde(coords, constants, coeffs)
 
@@ -494,7 +517,7 @@ def tabulate_tensor_L1(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
 
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
     coeffs = numba.carray(w_, V_ele_space_dim, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
     L_tilde = compute_L_tilde(coords, constants, coeffs)
 
@@ -519,7 +542,7 @@ def backsub_u(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     # u and p and then only stores u. Would be better to write backsub
     # expression directly for u.
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
     L_tilde = compute_L_tilde(coords, constants, u_n)
 
@@ -546,7 +569,7 @@ def backsub_p(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     # u and p and then only stores p. Would be better to write backsub
     # expression directly for p.
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
     A_tilde, B_tilde, C_tilde = compute_tilde_mats(A_00, A_10, A_20, A_30)
     L_tilde = compute_L_tilde(coords, constants, u_n)
 
@@ -643,7 +666,7 @@ bc_p_bar = fem.dirichletbc(PETSc.ScalarType(0.0), pressure_dof, Qbar)
 
 bcs = [bc_ubar]
 
-use_direct_solver = False
+use_direct_solver = True
 if use_direct_solver:
     bcs.append(bc_p_bar)
 timings["bcs"] = timer.stop()
