@@ -6,7 +6,7 @@ from mpi4py import MPI
 from utils import reorder_mesh, norm_L2, domain_average, normal_jump_error
 from dolfinx.cpp.mesh import cell_num_entities
 import numpy as np
-from ufl import inner, grad, dot, div
+from ufl import inner, grad, dot, div, outer
 import ufl
 from dolfinx.fem import IntegralType
 import cffi
@@ -56,7 +56,7 @@ def par_print(string):
         sys.stdout.flush()
 
 
-solver_type = SolverType.NAVIER_STOKES
+solver_type = SolverType.STOKES
 n = 8
 nu = 1.0
 k = 2
@@ -164,10 +164,12 @@ ds_c = ufl.Measure("ds", domain=msh)
 
 x = ufl.SpatialCoordinate(msh)
 f = - nu * div(grad(u_e(x, ufl))) + grad(p_e(x, ufl))
-
+if solver_type == SolverType.NAVIER_STOKES:
+    f += div(outer(u_e(x), u_e(x)))
 u_n = fem.Function(V)
 delta_t = fem.Constant(msh, PETSc.ScalarType(delta_t))
 nu = fem.Constant(msh, PETSc.ScalarType(nu))
+lmbda = ufl.conditional(ufl.lt(dot(u_n, n), 0), 1, 0)
 
 a_00 = inner(u / delta_t, v) * dx_c \
     + nu * (inner(grad(u), grad(v)) * dx_c + gamma * inner(u, v) * ds_c
