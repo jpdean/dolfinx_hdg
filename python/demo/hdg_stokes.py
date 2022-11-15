@@ -232,6 +232,7 @@ constants_size = 2  # TODO Figure out nicer way of doing this
 
 @numba.njit(fastmath=True)
 def compute_mats(coords, constants):
+    nu = np.array([constants[1]], dtype=PETSc.ScalarType)
     A_00 = np.zeros((V_ele_space_dim, V_ele_space_dim),
                     dtype=PETSc.ScalarType)
     A_10 = np.zeros((Q_ele_space_dim, V_ele_space_dim),
@@ -282,7 +283,7 @@ def compute_mats(coords, constants):
 
         kernel_20(ffi.from_buffer(A_20_f),
                   ffi.from_buffer(null64),
-                  ffi.from_buffer(null64),
+                  ffi.from_buffer(nu),
                   ffi.from_buffer(coords),
                   ffi.from_buffer(entity_local_index),
                   ffi.from_buffer(null8))
@@ -296,7 +297,7 @@ def compute_mats(coords, constants):
 
         kernel_22(ffi.from_buffer(A22_f),
                   ffi.from_buffer(null64),
-                  ffi.from_buffer(null64),
+                  ffi.from_buffer(nu),
                   ffi.from_buffer(coords),
                   ffi.from_buffer(entity_local_index),
                   ffi.from_buffer(null8))
@@ -631,7 +632,7 @@ bc_p_bar = fem.dirichletbc(PETSc.ScalarType(0.0), pressure_dof, Qbar)
 
 bcs = [bc_ubar]
 
-use_direct_solver = False
+use_direct_solver = True
 if use_direct_solver:
     bcs.append(bc_p_bar)
 timings["bcs"] = timer.stop()
