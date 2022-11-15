@@ -678,7 +678,7 @@ else:
 
     ksp = PETSc.KSP().create(msh.comm)
     ksp.setOperators(A, P)
-    ksp.setTolerances(rtol=1e-8)
+    ksp.setTolerances(rtol=1e-12)
     ksp.setType("minres")
     ksp.getPC().setType("fieldsplit")
     ksp.getPC().setFieldSplitIS(
