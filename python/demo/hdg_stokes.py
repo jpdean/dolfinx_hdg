@@ -3,7 +3,7 @@
 
 from dolfinx import mesh, fem, jit, io
 from mpi4py import MPI
-from utils import reorder_mesh, norm_L2, domain_average
+from utils import reorder_mesh, norm_L2, domain_average, normal_jump_error
 from dolfinx.cpp.mesh import cell_num_entities
 import numpy as np
 from ufl import inner, grad, dot, div
@@ -812,6 +812,7 @@ timer = print_and_time("Compute erorrs")
 x = ufl.SpatialCoordinate(msh)
 e_u = norm_L2(msh.comm, u_h - u_e(x, ufl))
 e_div_u = norm_L2(msh.comm, div(u_h))
+e_jump_u = normal_jump_error(msh, u_h)
 p_h_avg = domain_average(msh, p_h)
 p_e_avg = domain_average(msh, p_e(x, ufl))
 e_p = norm_L2(msh.comm, (p_h - p_h_avg) - (p_e(x, ufl) - p_e_avg))
@@ -838,6 +839,7 @@ data["dofs_sc"] = dofs_sc
 data["total_dofs"] = total_dofs
 data["e_u"] = e_u
 data["e_div_u"] = e_div_u
+data["e_jump_u"] = e_jump_u
 data["e_p"] = e_p
 data["e_ubar"] = e_ubar
 data["e_pbar"] = e_pbar
