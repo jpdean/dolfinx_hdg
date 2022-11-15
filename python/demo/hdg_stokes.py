@@ -52,6 +52,7 @@ def par_print(string):
 
 
 n = 8
+nu = 1.0
 # n = round((350000 * comm.size / 510)**(1 / 3))
 timer = print_and_time(f"Create mesh (n = {n})")
 msh = mesh.create_unit_square(
@@ -153,20 +154,22 @@ dx_c = ufl.Measure("dx", domain=msh)
 ds_c = ufl.Measure("ds", domain=msh)
 
 x = ufl.SpatialCoordinate(msh)
-f = - div(grad(u_e(x, ufl))) + grad(p_e(x, ufl))
+f = - nu * div(grad(u_e(x, ufl))) + grad(p_e(x, ufl))
 
 u_n = fem.Function(V)
-delta_t = fem.Constant(msh, PETSc.ScalarType(1.0e16))
+delta_t = fem.Constant(msh, PETSc.ScalarType(1e16))
+nu = fem.Constant(msh, PETSc.ScalarType(nu))
 num_time_steps = 1
 
 a_00 = inner(u / delta_t, v) * dx_c \
-    + inner(grad(u), grad(v)) * dx_c + gamma * inner(u, v) * ds_c \
-    - (inner(u, dot(grad(v), n))
-       + inner(v, dot(grad(u), n))) * ds_c
+    + nu * (inner(grad(u), grad(v)) * dx_c + gamma * inner(u, v) * ds_c
+            - (inner(u, dot(grad(v), n))
+               + inner(v, dot(grad(u), n))) * ds_c)
 a_10 = - inner(q, div(u)) * dx_c
-a_20 = inner(vbar, dot(grad(u), n)) * ds_c - gamma * inner(vbar, u) * ds_c
+a_20 = nu * (inner(vbar, dot(grad(u), n)) * ds_c
+             - gamma * inner(vbar, u) * ds_c)
 a_30 = inner(dot(u, n), qbar) * ds_c
-a_22 = gamma * inner(ubar, vbar) * ds_c
+a_22 = nu * gamma * inner(ubar, vbar) * ds_c
 
 p_11 = h * inner(pbar, qbar) * ds_c
 
@@ -224,7 +227,7 @@ ffi = cffi.FFI()
 null64 = np.zeros(0, dtype=np.float64)
 null32 = np.zeros(0, dtype=np.int32)
 null8 = np.zeros(0, dtype=np.uint8)
-constants_size = 1  # TODO Figure out nicer way of doing this
+constants_size = 2  # TODO Figure out nicer way of doing this
 
 
 @numba.njit(fastmath=True)
@@ -549,28 +552,28 @@ integrals_a00 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a00.address, [])}}
 a00 = Form_float64(
     [Vbar._cpp_object, Vbar._cpp_object], integrals_a00, [], [
-        delta_t._cpp_object], False, msh,
+        delta_t._cpp_object, nu._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_a01 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a01.address, [])}}
 a01 = Form_float64(
     [Vbar._cpp_object, Qbar._cpp_object], integrals_a01, [], [
-        delta_t._cpp_object], False, msh,
+        delta_t._cpp_object, nu._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_a10 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a10.address, [])}}
 a10 = Form_float64(
     [Qbar._cpp_object, Vbar._cpp_object], integrals_a10, [], [
-        delta_t._cpp_object], False, msh,
+        delta_t._cpp_object, nu._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_a11 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a11.address, [])}}
 a11 = Form_float64(
     [Qbar._cpp_object, Qbar._cpp_object], integrals_a11, [], [
-        delta_t._cpp_object], False, msh,
+        delta_t._cpp_object, nu._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 a = [[a00, a01],
@@ -581,7 +584,7 @@ integrals_p00 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_p00.address, [])}}
 p00 = Form_float64(
     [Vbar._cpp_object, Vbar._cpp_object], integrals_p00, [], [
-        delta_t._cpp_object], False, msh,
+        delta_t._cpp_object, nu._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_p11 = {
@@ -597,14 +600,14 @@ integrals_L0 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_L0.address, [])}}
 L0 = Form_float64(
     [Vbar._cpp_object], integrals_L0, [u_n._cpp_object], [
-        delta_t._cpp_object], False, msh,
+        delta_t._cpp_object, nu._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_L1 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_L1.address, [])}}
 L1 = Form_float64(
     [Qbar._cpp_object], integrals_L1, [u_n._cpp_object], [
-        delta_t._cpp_object], False, msh,
+        delta_t._cpp_object, nu._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 L = [L0, L1]
@@ -735,13 +738,13 @@ timings["write_init"] = timer.stop()
 integrals_backsub_u = {fem.IntegralType.cell: {-1: (backsub_u.address, [])}}
 u_form = Form_float64([V._cpp_object], integrals_backsub_u,
                       [ubar_h._cpp_object, pbar_h._cpp_object, u_n._cpp_object], [
-    delta_t._cpp_object], False, None,
+    delta_t._cpp_object, nu._cpp_object], False, None,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_backsub_p = {fem.IntegralType.cell: {-1: (backsub_p.address, [])}}
 p_form = Form_float64([Q._cpp_object], integrals_backsub_p,
                       [ubar_h._cpp_object, pbar_h._cpp_object, u_n._cpp_object], [
-                          delta_t._cpp_object], False, None,
+                          delta_t._cpp_object, nu._cpp_object], False, None,
                       entity_maps={facet_mesh: inv_entity_map})
 
 t = 0.0
