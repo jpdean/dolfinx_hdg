@@ -171,7 +171,7 @@ a_20 = nu * (inner(vbar, dot(grad(u), n)) * ds_c
 a_30 = inner(dot(u, n), qbar) * ds_c
 a_22 = nu * gamma * inner(ubar, vbar) * ds_c
 
-p_11 = h * inner(pbar, qbar) * ds_c
+p_11 = h / nu * inner(pbar, qbar) * ds_c
 
 L_0 = inner(f + u_n / delta_t, v) * dx_c
 timings["define_problem"] = timer.stop()
@@ -439,6 +439,7 @@ def tabulate_tensor_p11(P_, w_, c_, coords_, entity_local_index, permutation=ffi
     P_local = numba.carray(P_, (num_cell_facets * Qbar_ele_space_dim,
                                 num_cell_facets * Qbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
+    constants = numba.carray(c_, 1, dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
     P_11_f = np.zeros((Qbar_ele_space_dim, Qbar_ele_space_dim),
                       dtype=PETSc.ScalarType)
@@ -450,7 +451,7 @@ def tabulate_tensor_p11(P_, w_, c_, coords_, entity_local_index, permutation=ffi
 
         kernel_p11(ffi.from_buffer(P_11_f),
                    ffi.from_buffer(null64),
-                   ffi.from_buffer(null64),
+                   ffi.from_buffer(constants),
                    ffi.from_buffer(coords),
                    ffi.from_buffer(entity_local_index),
                    ffi.from_buffer(null8))
@@ -591,7 +592,7 @@ p00 = Form_float64(
 integrals_p11 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_p11.address, [])}}
 p11 = Form_float64(
-    [Qbar._cpp_object, Qbar._cpp_object], integrals_p11, [], [], False, msh,
+    [Qbar._cpp_object, Qbar._cpp_object], integrals_p11, [], [nu._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 p = [[p00, None],
@@ -632,7 +633,7 @@ bc_p_bar = fem.dirichletbc(PETSc.ScalarType(0.0), pressure_dof, Qbar)
 
 bcs = [bc_ubar]
 
-use_direct_solver = True
+use_direct_solver = False
 if use_direct_solver:
     bcs.append(bc_p_bar)
 timings["bcs"] = timer.stop()
