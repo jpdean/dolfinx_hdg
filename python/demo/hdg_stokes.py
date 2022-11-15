@@ -19,6 +19,11 @@ from dolfinx_hdg.assemble import pack_coefficients
 import sys
 from dolfinx.common import Timer, list_timings, TimingType
 import json
+from enum import Enum
+
+class SolverType(Enum):
+    STOKES = 1
+    NAVIER_STOKES = 2
 
 
 def boundary(x):
@@ -51,8 +56,13 @@ def par_print(string):
         sys.stdout.flush()
 
 
+solver_type = SolverType.NAVIER_STOKES
 n = 8
 nu = 1.0
+k = 2
+num_time_steps = 1
+delta_t = 1e16
+
 # n = round((350000 * comm.size / 510)**(1 / 3))
 timer = print_and_time(f"Create mesh (n = {n})")
 msh = mesh.create_unit_square(
@@ -83,7 +93,6 @@ facet_mesh, entity_map = mesh.create_submesh(msh, fdim, facets)[0:2]
 timings["create_facet_mesh"] = timer.stop()
 
 timer = print_and_time("Create function spaces")
-k = 2
 V = fem.VectorFunctionSpace(msh, ("Discontinuous Lagrange", k))
 Q = fem.FunctionSpace(msh, ("Discontinuous Lagrange", k - 1))
 Vbar = fem.VectorFunctionSpace(
@@ -157,9 +166,8 @@ x = ufl.SpatialCoordinate(msh)
 f = - nu * div(grad(u_e(x, ufl))) + grad(p_e(x, ufl))
 
 u_n = fem.Function(V)
-delta_t = fem.Constant(msh, PETSc.ScalarType(1e16))
+delta_t = fem.Constant(msh, PETSc.ScalarType(delta_t))
 nu = fem.Constant(msh, PETSc.ScalarType(nu))
-num_time_steps = 1
 
 a_00 = inner(u / delta_t, v) * dx_c \
     + nu * (inner(grad(u), grad(v)) * dx_c + gamma * inner(u, v) * ds_c
