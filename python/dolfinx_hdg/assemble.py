@@ -153,9 +153,7 @@ def assemble_matrix_block(a,
     return _assemble_matrix_block_form(a, bcs, diagonal, constants, coeffs)
 
 
-assemble_matrix_block.register(list)
-
-
+@assemble_matrix_block.register(list)
 def _assemble_matrix_block_form(a,
                                 bcs=[],
                                 diagonal=1.0,
