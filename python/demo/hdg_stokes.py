@@ -60,11 +60,11 @@ def par_print(string):
 
 # TODO Iterative solver
 # TODO Don't assemble Stokes every step
-solver_type = SolverType.NAVIER_STOKES
+solver_type = SolverType.STOKES
 n = 8
 nu = 1.0e-2
 k = 2
-num_time_steps = 1
+num_time_steps = 10
 delta_t = 2
 
 # n = round((350000 * comm.size / 510)**(1 / 3))
@@ -732,8 +732,13 @@ if use_direct_solver:
     ksp.getPC().setFactorSolverType("superlu_dist")
 else:
     timer = print_and_time("Assemble preconditioner")
-    P = assemble_matrix_block_hdg(p, bcs=bcs)
-    P.assemble()
+
+    if solver_type == SolverType.NAVIER_STOKES:
+        P = create_matrix_block_hdg(p)
+    else:
+        P = assemble_matrix_block_hdg(p, bcs=bcs)
+        P.assemble()
+
     timings["assemble_pre"] = timer.stop()
 
     timer = print_and_time("Setup solver")
@@ -844,6 +849,10 @@ for n in range(num_time_steps):
         A.zeroEntries()
         assemble_matrix_block_hdg(A, a, bcs=bcs)
         A.assemble()
+
+        P.zeroEntries()
+        assemble_matrix_block_hdg(P, p, bcs=bcs)
+        P.assemble()
 
     timer = print_and_time("Assemble vector")
     with b.localForm() as b_loc:
