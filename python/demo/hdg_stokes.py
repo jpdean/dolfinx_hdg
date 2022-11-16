@@ -499,7 +499,7 @@ def tabulate_tensor_p00(P_, w_, c_, coords_, entity_local_index, permutation=ffi
 
     # Should this use A20.T, A_02, A_20.T without convective terms,
     # or something else?
-    P_local += A_22 - A_20 @ np.linalg.solve(A_00, A_20.T)
+    P_local += A_22 - A_20 @ np.linalg.solve(A_00, A_02)
 
 
 @numba.cfunc(c_signature, nopython=True, fastmath=True)
