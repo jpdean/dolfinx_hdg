@@ -59,10 +59,10 @@ def par_print(string):
 
 solver_type = SolverType.NAVIER_STOKES
 n = 8
-nu = 1.0
+nu = 1.0e-2
 k = 2
-num_time_steps = 1
-delta_t = 0.1
+num_time_steps = 10
+delta_t = 10
 
 # n = round((350000 * comm.size / 510)**(1 / 3))
 timer = print_and_time(f"Create mesh (n = {n})")
@@ -440,7 +440,6 @@ def tabulate_tensor_a00(A_, w_, c_, coords_, entity_local_index, permutation=ffi
     A_tilde, B_tilde, B_tilde_2, C_tilde = compute_tilde_mats(
         A_00, A_10, A_20, A_02, A_30)
 
-    numba_print(np.linalg.det(A_tilde))
     A_local += A_22 - B_tilde @ np.linalg.solve(A_tilde, B_tilde_2)
 
 
