@@ -64,7 +64,7 @@ solver_type = SolverType.NAVIER_STOKES
 n = 8
 nu = 1.0e-2
 k = 2
-num_time_steps = 20
+num_time_steps = 1
 delta_t = 2
 
 # n = round((350000 * comm.size / 510)**(1 / 3))
@@ -708,7 +708,7 @@ bc_p_bar = fem.dirichletbc(PETSc.ScalarType(0.0), pressure_dof, Qbar)
 
 bcs = [bc_ubar]
 
-use_direct_solver = True
+use_direct_solver = False
 if use_direct_solver:
     bcs.append(bc_p_bar)
 timings["bcs"] = timer.stop()
@@ -751,7 +751,9 @@ else:
     null_vec.array[offset:] = 1.0
     null_vec.normalize()
     nsp = PETSc.NullSpace().create(vectors=[null_vec])
-    assert nsp.test(A)
+    # If solving Stokes, matrix is already assembled so we can test the nullspace
+    if solver_type == SolverType.STOKES:
+        assert nsp.test(A)
     A.setNullSpace(nsp)
 
     ksp = PETSc.KSP().create(msh.comm)
