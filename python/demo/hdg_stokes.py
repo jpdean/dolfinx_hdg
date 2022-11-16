@@ -16,6 +16,7 @@ from dolfinx.cpp.fem import Form_float64
 from dolfinx_hdg.assemble import assemble_matrix_block as assemble_matrix_block_hdg
 from dolfinx_hdg.assemble import assemble_vector_block as assemble_vector_block_hdg
 from dolfinx_hdg.assemble import pack_coefficients
+from dolfinx_hdg.assemble import create_matrix_block as create_matrix_block_hdg
 import sys
 from dolfinx.common import Timer, list_timings, TimingType
 import json
@@ -713,8 +714,11 @@ if use_direct_solver:
 timings["bcs"] = timer.stop()
 
 timer = print_and_time("Assemble matrix")
-A = assemble_matrix_block_hdg(a, bcs=bcs)
-A.assemble()
+if solver_type == SolverType.NAVIER_STOKES:
+    A = create_matrix_block_hdg(a)
+else:
+    A = assemble_matrix_block_hdg(a, bcs=bcs)
+    A.assemble()
 timings["assemble_mat"] = timer.stop()
 
 b = fem.petsc.create_vector_block(L)
@@ -833,11 +837,11 @@ for n in range(num_time_steps):
     t += delta_t.value
     par_print(f"\nt = {t}")
 
-    # TODO Reassemble preconditioner?
-    # TODO Don't reassemble for Stokes
-    A.zeroEntries()
-    assemble_matrix_block_hdg(A, a, bcs=bcs)
-    A.assemble()
+    if solver_type == SolverType.NAVIER_STOKES:
+        # TODO Reassemble preconditioner?
+        A.zeroEntries()
+        assemble_matrix_block_hdg(A, a, bcs=bcs)
+        A.assemble()
 
     timer = print_and_time("Assemble vector")
     with b.localForm() as b_loc:
