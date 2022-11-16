@@ -186,6 +186,15 @@ a_22 = nu * gamma * inner(ubar, vbar) * ds_c
 
 p_11 = h / nu * inner(pbar, qbar) * ds_c
 
+if solver_type == SolverType.NAVIER_STOKES:
+    a_00 += inner(outer(u, u_n) - outer(u, lmbda * u_n),
+                  outer(v, n)) * ds_c - \
+        inner(outer(u, u_n), grad(v)) * dx_c
+    a_02 += inner(outer(ubar, lmbda * u_n), outer(v, n)) * ds_c
+    a_20 += inner(outer(u, u_n) - outer(u, lmbda * u_n),
+                  outer(vbar, n)) * ds_c
+    a_22 += inner(outer(ubar, lmbda * u_n), outer(vbar, n)) * ds_c
+
 L_0 = inner(f + u_n / delta_t, v) * dx_c
 timings["define_problem"] = timer.stop()
 
@@ -475,6 +484,8 @@ def tabulate_tensor_p00(P_, w_, c_, coords_, entity_local_index, permutation=ffi
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
     A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
 
+    # Should this use A20.T, A_02, A_20.T without convective terms,
+    # or something else?
     P_local += A_22 - A_20 @ np.linalg.solve(A_00, A_20.T)
 
 
@@ -807,6 +818,12 @@ timings["write"] = 0.0
 for n in range(num_time_steps):
     t += delta_t.value
     par_print(f"\nt = {t}")
+
+    # TODO Reassemble preconditioner?
+    # TODO Don't reassemble for Stokes
+    A.zeroEntries()
+    assemble_matrix_block_hdg(A, a, bcs=bcs)
+    A.assemble()
 
     timer = print_and_time("Assemble vector")
     with b.localForm() as b_loc:
