@@ -57,12 +57,12 @@ def par_print(string):
         sys.stdout.flush()
 
 
-solver_type = SolverType.STOKES
-n = 2
+solver_type = SolverType.NAVIER_STOKES
+n = 8
 nu = 1.0
 k = 2
 num_time_steps = 1
-delta_t = 1e16
+delta_t = 0.1
 
 # n = round((350000 * comm.size / 510)**(1 / 3))
 timer = print_and_time(f"Create mesh (n = {n})")
@@ -132,8 +132,16 @@ else:
 
 def u_e(x, module=np):
     if tdim == 2:
-        u_x = module.sin(module.pi * x[0]) * module.cos(module.pi * x[1])
-        u_y = - module.sin(module.pi * x[1]) * module.cos(module.pi * x[0])
+        # TODO Change back
+        # u_x = module.sin(module.pi * x[0]) * module.cos(module.pi * x[1])
+        # u_y = - module.sin(module.pi * x[1]) * module.cos(module.pi * x[0])
+        # if module == np:
+        #     return np.stack((u_x, u_y))
+        # else:
+        #     return ufl.as_vector((u_x, u_y))
+        u_x = x[0]**2 * (1 - x[0])**2 * (2 * x[1] - 6 * x[1]**2 + 4 * x[1]**3)
+        u_y = - x[1]**2 * (1 - x[1])**2 * (2 * x[0] -
+                                           6 * x[0]**2 + 4 * x[0]**3)
         if module == np:
             return np.stack((u_x, u_y))
         else:
@@ -166,7 +174,7 @@ ds_c = ufl.Measure("ds", domain=msh)
 x = ufl.SpatialCoordinate(msh)
 f = - nu * div(grad(u_e(x, ufl))) + grad(p_e(x, ufl))
 if solver_type == SolverType.NAVIER_STOKES:
-    f += div(outer(u_e(x), u_e(x)))
+    f += div(outer(u_e(x, ufl), u_e(x, ufl)))
 u_n = fem.Function(V)
 delta_t = fem.Constant(msh, PETSc.ScalarType(delta_t))
 nu = fem.Constant(msh, PETSc.ScalarType(nu))
@@ -257,7 +265,7 @@ constants_size = 2  # TODO Figure out nicer way of doing this
 
 
 @numba.njit(fastmath=True)
-def compute_mats(coords, constants):
+def compute_mats(coords, constants, coeffs):
     nu = np.array([constants[1]], dtype=PETSc.ScalarType)
     A_00 = np.zeros((V_ele_space_dim, V_ele_space_dim),
                     dtype=PETSc.ScalarType)
@@ -286,7 +294,7 @@ def compute_mats(coords, constants):
                      dtype=PETSc.ScalarType)
 
     kernel_00_cell(ffi.from_buffer(A_00),
-                   ffi.from_buffer(null64),
+                   ffi.from_buffer(coeffs),
                    ffi.from_buffer(constants),
                    ffi.from_buffer(coords),
                    ffi.from_buffer(null32),
@@ -307,21 +315,21 @@ def compute_mats(coords, constants):
         A22_f.fill(0.0)
 
         kernel_00_facet(ffi.from_buffer(A_00),
-                        ffi.from_buffer(null64),
+                        ffi.from_buffer(coeffs),
                         ffi.from_buffer(constants),
                         ffi.from_buffer(coords),
                         ffi.from_buffer(entity_local_index),
                         ffi.from_buffer(null8))
 
         kernel_20(ffi.from_buffer(A_20_f),
-                  ffi.from_buffer(null64),
+                  ffi.from_buffer(coeffs),
                   ffi.from_buffer(nu),
                   ffi.from_buffer(coords),
                   ffi.from_buffer(entity_local_index),
                   ffi.from_buffer(null8))
 
         kernel_02(ffi.from_buffer(A_02_f),
-                  ffi.from_buffer(null64),
+                  ffi.from_buffer(coeffs),
                   ffi.from_buffer(nu),
                   ffi.from_buffer(coords),
                   ffi.from_buffer(entity_local_index),
@@ -335,7 +343,7 @@ def compute_mats(coords, constants):
                   ffi.from_buffer(null8))
 
         kernel_22(ffi.from_buffer(A22_f),
-                  ffi.from_buffer(null64),
+                  ffi.from_buffer(coeffs),
                   ffi.from_buffer(nu),
                   ffi.from_buffer(coords),
                   ffi.from_buffer(entity_local_index),
@@ -425,11 +433,14 @@ def tabulate_tensor_a00(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Vbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
+    coeffs = numba.carray(w_, V_ele_space_dim, dtype=PETSc.ScalarType)
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(
+        coords, constants, coeffs)
     A_tilde, B_tilde, B_tilde_2, C_tilde = compute_tilde_mats(
         A_00, A_10, A_20, A_02, A_30)
 
+    numba_print(np.linalg.det(A_tilde))
     A_local += A_22 - B_tilde @ np.linalg.solve(A_tilde, B_tilde_2)
 
 
@@ -438,9 +449,11 @@ def tabulate_tensor_a01(A_, w_, c_, coords_, entity_local_index, permutation=ffi
     A_local = numba.carray(A_, (num_cell_facets * Vbar_ele_space_dim,
                                 num_cell_facets * Qbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
+    coeffs = numba.carray(w_, V_ele_space_dim, dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(
+        coords, constants, coeffs)
     A_tilde, B_tilde, B_tilde_2, C_tilde = compute_tilde_mats(
         A_00, A_10, A_20, A_02, A_30)
 
@@ -453,8 +466,10 @@ def tabulate_tensor_a10(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Vbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
+    coeffs = numba.carray(w_, V_ele_space_dim, dtype=PETSc.ScalarType)
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(
+        coords, constants, coeffs)
     A_tilde, B_tilde, B_tilde_2, C_tilde = compute_tilde_mats(
         A_00, A_10, A_20, A_02, A_30)
 
@@ -467,8 +482,10 @@ def tabulate_tensor_a11(A_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Qbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
+    coeffs = numba.carray(w_, V_ele_space_dim, dtype=PETSc.ScalarType)
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(
+        coords, constants, coeffs)
     A_tilde, B_tilde, B_tilde_2, C_tilde = compute_tilde_mats(
         A_00, A_10, A_20, A_02, A_30)
 
@@ -481,8 +498,10 @@ def tabulate_tensor_p00(P_, w_, c_, coords_, entity_local_index, permutation=ffi
                                 num_cell_facets * Vbar_ele_space_dim),
                            dtype=PETSc.ScalarType)
     coords = numba.carray(coords_, (num_dofs_g, 3), dtype=PETSc.ScalarType)
+    coeffs = numba.carray(w_, V_ele_space_dim, dtype=PETSc.ScalarType)
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(
+        coords, constants, coeffs)
 
     # Should this use A20.T, A_02, A_20.T without convective terms,
     # or something else?
@@ -524,7 +543,8 @@ def tabulate_tensor_L0(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
 
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
     coeffs = numba.carray(w_, V_ele_space_dim, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(
+        coords, constants, coeffs)
     A_tilde, B_tilde, B_tilde_2, C_tilde = compute_tilde_mats(
         A_00, A_10, A_20, A_02, A_30)
     L_tilde = compute_L_tilde(coords, constants, coeffs)
@@ -540,7 +560,8 @@ def tabulate_tensor_L1(b_, w_, c_, coords_, entity_local_index, permutation=ffi.
 
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
     coeffs = numba.carray(w_, V_ele_space_dim, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(
+        coords, constants, coeffs)
     A_tilde, B_tilde, B_tilde_2, C_tilde = compute_tilde_mats(
         A_00, A_10, A_20, A_02, A_30)
     L_tilde = compute_L_tilde(coords, constants, coeffs)
@@ -566,7 +587,7 @@ def backsub_u(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     # u and p and then only stores u. Would be better to write backsub
     # expression directly for u.
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants, u_n)
     A_tilde, B_tilde, B_tilde_2, C_tilde = compute_tilde_mats(
         A_00, A_10, A_20, A_02, A_30)
     L_tilde = compute_L_tilde(coords, constants, u_n)
@@ -594,7 +615,7 @@ def backsub_p(x_, w_, c_, coords_, entity_local_index, permutation=ffi.NULL):
     # u and p and then only stores p. Would be better to write backsub
     # expression directly for p.
     constants = numba.carray(c_, constants_size, dtype=PETSc.ScalarType)
-    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants)
+    A_00, A_10, A_20, A_02, A_30, A_22 = compute_mats(coords, constants, u_n)
     A_tilde, B_tilde, B_tilde_2, C_tilde = compute_tilde_mats(
         A_00, A_10, A_20, A_02, A_30)
     L_tilde = compute_L_tilde(coords, constants, u_n)
@@ -612,28 +633,28 @@ timer = print_and_time("Create forms")
 integrals_a00 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a00.address, [])}}
 a00 = Form_float64(
-    [Vbar._cpp_object, Vbar._cpp_object], integrals_a00, [], [
+    [Vbar._cpp_object, Vbar._cpp_object], integrals_a00, [u_n._cpp_object], [
         delta_t._cpp_object, nu._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_a01 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a01.address, [])}}
 a01 = Form_float64(
-    [Vbar._cpp_object, Qbar._cpp_object], integrals_a01, [], [
+    [Vbar._cpp_object, Qbar._cpp_object], integrals_a01, [u_n._cpp_object], [
         delta_t._cpp_object, nu._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_a10 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a10.address, [])}}
 a10 = Form_float64(
-    [Qbar._cpp_object, Vbar._cpp_object], integrals_a10, [], [
+    [Qbar._cpp_object, Vbar._cpp_object], integrals_a10, [u_n._cpp_object], [
         delta_t._cpp_object, nu._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 integrals_a11 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_a11.address, [])}}
 a11 = Form_float64(
-    [Qbar._cpp_object, Qbar._cpp_object], integrals_a11, [], [
+    [Qbar._cpp_object, Qbar._cpp_object], integrals_a11, [u_n._cpp_object], [
         delta_t._cpp_object, nu._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
@@ -644,7 +665,7 @@ a = [[a00, a01],
 integrals_p00 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_p00.address, [])}}
 p00 = Form_float64(
-    [Vbar._cpp_object, Vbar._cpp_object], integrals_p00, [], [
+    [Vbar._cpp_object, Vbar._cpp_object], integrals_p00, [u_n._cpp_object], [
         delta_t._cpp_object, nu._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
