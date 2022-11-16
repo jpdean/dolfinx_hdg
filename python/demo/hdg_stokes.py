@@ -57,12 +57,14 @@ def par_print(string):
         sys.stdout.flush()
 
 
+# TODO Iterative solver
+# TODO Don't assemble Stokes every step
 solver_type = SolverType.NAVIER_STOKES
 n = 8
 nu = 1.0e-2
 k = 2
-num_time_steps = 10
-delta_t = 10
+num_time_steps = 20
+delta_t = 2
 
 # n = round((350000 * comm.size / 510)**(1 / 3))
 timer = print_and_time(f"Create mesh (n = {n})")
