@@ -132,16 +132,8 @@ else:
 
 def u_e(x, module=np):
     if tdim == 2:
-        # TODO Change back
-        # u_x = module.sin(module.pi * x[0]) * module.cos(module.pi * x[1])
-        # u_y = - module.sin(module.pi * x[1]) * module.cos(module.pi * x[0])
-        # if module == np:
-        #     return np.stack((u_x, u_y))
-        # else:
-        #     return ufl.as_vector((u_x, u_y))
-        u_x = x[0]**2 * (1 - x[0])**2 * (2 * x[1] - 6 * x[1]**2 + 4 * x[1]**3)
-        u_y = - x[1]**2 * (1 - x[1])**2 * (2 * x[0] -
-                                           6 * x[0]**2 + 4 * x[0]**3)
+        u_x = module.sin(module.pi * x[0]) * module.cos(module.pi * x[1])
+        u_y = - module.sin(module.pi * x[1]) * module.cos(module.pi * x[0])
         if module == np:
             return np.stack((u_x, u_y))
         else:
