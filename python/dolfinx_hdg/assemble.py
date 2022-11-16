@@ -108,6 +108,37 @@ def _assemble_vector_form(L, constants=None, coeffs=None):
     return b
 
 
+def create_matrix(a, mat_type=None):
+    """Create a PETSc matrix that is compaible with a bilinear form.
+
+    Args:
+        a: A bilinear form.
+        mat_type: The PETSc matrix type (``MatType``).
+
+    Returns:
+        A PETSc matrix with a layout that is compatible with `a`.
+
+    """
+    if mat_type is None:
+        return dolfinx_hdg.cpp.create_matrix(a)
+    else:
+        return dolfinx_hdg.cpp.create_matrix(a, mat_type)
+
+
+def create_matrix_block(a):
+    """Create a PETSc matrix that is compatible with a rectangular array of
+       bilinear forms.
+
+    Args:
+        a: A rectangular array of bilinear forms.
+
+    Returns:
+        A PETSc matrix with a blocked layout that is compatible with `a`.
+
+    """
+    return dolfinx_hdg.cpp.create_matrix_block(a)
+
+
 @functools.singledispatch
 def assemble_matrix(a, bcs=[], diagonal=1.0,
                     constants=None, coeffs=None):
