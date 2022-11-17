@@ -592,7 +592,8 @@ p00 = Form_float64(
 integrals_p11 = {
     fem.IntegralType.cell: {-1: (tabulate_tensor_p11.address, [])}}
 p11 = Form_float64(
-    [Qbar._cpp_object, Qbar._cpp_object], integrals_p11, [], [nu._cpp_object], False, msh,
+    [Qbar._cpp_object, Qbar._cpp_object], integrals_p11, [], [
+        nu._cpp_object], False, msh,
     entity_maps={facet_mesh: inv_entity_map})
 
 p = [[p00, None],
