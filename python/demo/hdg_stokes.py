@@ -58,9 +58,8 @@ def par_print(string):
         sys.stdout.flush()
 
 
-# TODO Iterative solver
-# TODO Don't assemble Stokes every step
-solver_type = SolverType.STOKES
+# TODO Iterative solver for Navier-Stokes
+solver_type = SolverType.NAVIER_STOKES
 n = 8
 nu = 1.0e-2
 k = 2
